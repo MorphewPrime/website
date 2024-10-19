@@ -1,11 +1,46 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
+<head>
     <meta charset="UTF-8">
-    <title>Morphew - Test</title>
-  </head>
-  <body>
-    <a href="about.html" title="About Me">About Me Test</a>
-    <h1>Morphew - Test</h1>
-  </body>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rotating Quarter Circle</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="nav-container">
+      <div class="circle-container">
+          <div class="quarter quarter-1"></div>
+          <div class="quarter quarter-2"></div>
+          <div class="quarter quarter-3"> <div class="title-wrapper"><h1 class="circle-aligned">The Great Outdoors1</h1></div></div>
+          <div class="quarter quarter-4"></div>
+      </div>
+    </div>
+    
+
+    <div class="page-content">
+        <h1>Page 1</h1>
+        <button class="nav-button" onclick="rotateCircle(1)">Next</button>
+    </div>
+    <script>
+      let rotation = 45; // Start with an initial 45-degree rotation for proper alignment
+      const colors = ['green', 'blue', 'red', 'yellow']; // Array of quarter colors
+  
+      // Apply the initial rotation to center the first quarter
+      document.querySelector('.circle-container').style.transform = `translateX(-50%) rotate(${rotation}deg)`;
+  
+      function rotateCircle(step) {
+          // Update rotation by 90 degrees each time
+          rotation += step * 90;
+  
+          // Calculate the index of the current quarter
+          const currentIndex = (Math.floor(rotation / 90) + 4) % 4; // Ensures index stays within bounds
+  
+          // Change the background color of the page content
+          document.querySelector('.page-content').style.backgroundColor = colors[currentIndex];
+  
+          // Apply the rotation to the circle
+          document.querySelector('.circle-container').style.transform = `translateX(-50%) rotate(${rotation}deg)`;
+      }
+  </script>
+</body>
 </html>
