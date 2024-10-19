@@ -1,0 +1,143 @@
+/* Basic Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+h1 {
+  top: 20vw;
+  /* position: absolute; */
+  bottom: 0;
+  right: 25vw;
+  background-color: green;
+  transform: rotate(135deg);
+  position: fixed;
+  width: 50%;
+  height: 50%;
+  background-color: transparent;
+  border-top-left-radius: 100%;
+  background: url(https://images.unsplash.com/photo-1575058752200-a9d6c0f41945?&q=85);
+  background-size: 112vw auto;
+  -webkit-text-fill-color: transparent;
+  background-position: center;
+  border-top-left-radius: 0%;
+  -webkit-background-clip: text;
+  color: black;
+  overflow: hidden;
+  text-align: center;
+  font-weight: 900;
+  text-transform: uppercase;
+  font-size: 64px;
+  font-family: 'Fraunces', serif;
+}
+
+.title-wrapper {
+  position: fixed;
+}
+
+.nav-container {
+  clip-path: polygon(0 0, 100% 0, 100% 50%, 0 50%);
+  height: 71vw;
+}
+
+/* Body and container settings */
+body {
+  height: 100%;
+  overflow-x: hidden;
+  font-family: Arial, sans-serif;
+  background-color: #f0f0f0;
+  overflow: scroll;
+}
+html {
+  height: 100%;
+  overflow: hidden;
+  font-family: Arial, sans-serif;
+  background-color: #f0f0f0;
+
+}
+
+/* The circle that contains the quarter sections */
+.circle-container {
+  position: absolute;
+  top: -90vw; /* Keeps the circle above the page */
+  left: 50%;
+  transform: translateX(-50%) rotate(0deg); /* Start with no rotation */
+  width: 150vw; /* Large enough to cover the viewport */
+  height: 150vw;
+  border-radius: 50%;
+  transition: transform 1s ease-in-out; /* Smooth transition when rotated */
+  z-index: 5; /* Behind page content */
+  overflow: hidden;
+}
+
+/* Each quarter of the circle */
+.quarter {
+  position: absolute;
+  width: 50%;
+  height: 50%;
+  background-color: transparent;
+  border-top-left-radius: 100%;
+}
+
+/* Coloring and positioning each quarter */
+.quarter-1 {
+  top: 0;
+  left: 0;
+  background-color: red;
+  transform: rotate(0deg); /* No rotation needed for the first quarter */
+}
+
+.quarter-2 {
+  top: 0;
+  right: 0;
+  background-color: blue;
+  transform: rotate(90deg); /* Rotate this quarter 90 degrees */
+}
+
+.quarter-3 {
+  bottom: 0;
+  right: 0;
+  background-color: green;
+  transform: rotate(180deg); /* Rotate this quarter 180 degrees */
+}
+
+.quarter-4 {
+  bottom: 0;
+  left: 0;
+  background-color: yellow;
+  transform: rotate(270deg); /* Rotate this quarter 270 degrees */
+}
+
+/* Page content */
+.page-content {
+  position: relative;
+  z-index: 10; /* Above the rotating circle */
+  text-align: center;
+  margin-top: 37vw;
+  /*background: brown; /* Default background */
+  transition: background-color 1s ease; /* Smooth transition for background color */
+}
+
+h1 {
+  font-size: 2rem;
+  margin-bottom: 20px;
+}
+
+.nav-button {
+  padding: 10px 20px;
+  margin: 10px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.example::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.example {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
