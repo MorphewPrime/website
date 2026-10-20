@@ -153,7 +153,7 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); border-
     <div class="row"><label for="nGap">Min gap between edges</label><input type="number" id="nGap" step="0.1" min="0"></div>
     <div class="row"><label for="nMargin">Bend margin <small>past fold</small></label><input type="number" id="nMargin" step="0.1" min="0"></div>
     <div class="row"><label for="cWalls">Include red/white walls <small>+0.61 each side</small></label><input type="checkbox" id="cWalls"></div>
-    <div class="row"><label for="nSpacing">Point spacing when drawing</label><input type="number" id="nSpacing" step="0.5" min="2"></div>
+    <div class="row"><label for="nSpacing">Point spacing <small>respaces the track live</small></label><input type="number" id="nSpacing" step="0.5" min="2"></div>
     <div class="row"><label for="nSeg">Road segment length</label><input type="number" id="nSeg" step="0.001" min="0.1"></div>
     <div class="row"><label for="nBridgeH">Bridge height <small>BU</small></label><input type="number" id="nBridgeH" step="0.5" min="0.5"></div>
     <div class="row"><label for="nRamp">Max ramp slope <small>deg</small></label><input type="number" id="nRamp" step="1" min="1" max="45"></div>
@@ -182,7 +182,7 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); border-
     <div class="btns"><button class="primary" id="bCopy">Copy Blender script</button><button id="bSave">Download .py</button></div>
     <div class="btns" style="margin-top:6px"><button id="bSaveL" title="Points, heights, pins, flips and rules as a .json file">Save layout</button><button id="bOpenL">Open layout…</button></div>
     <input type="file" id="fLayout" accept=".json,application/json" hidden>
-    <p class="note">Paste into Blender's Text Editor and run. It makes a cyclic NURBS path at the 3D cursor (same axes as this view) and, if the road piece exists, a road copy with Array + Curve, with the count and a tiny path scale set so the loop closes exactly. The copy is scaled across to the road width set here, so Blender builds the same width the solver checked.</p>
+    <p class="note">Paste into Blender's Text Editor and run. It makes a cyclic NURBS path at the 3D cursor (same axes as this view) and a road copy with Array + Curve (if the file has no road piece by that name, it builds one like track 1's and hides it), with the count and a tiny path scale set so the loop closes exactly. The copy is scaled across to the road width set here, so Blender builds the same width the solver checked.</p>
   </section>
 </aside>
 
@@ -632,27 +632,68 @@ function analyse() {
 }
 
 // ------------------------------------------------------------------ drawing a new loop
-function buildFromStroke(pts) {
-  const m = pts.length; const cum = [0];
+// closed polyline -> loop length and evenly spaced points (z carried along); cum[] kept for mapping positions
+function resampleLoop(pts, n) {
+  const m = pts.length, cum = [0];
   for (let i = 0; i < m; i++) { const a = pts[i], b = pts[(i + 1) % m]; cum.push(cum[i] + Math.hypot(b.x - a.x, b.y - a.y)); }
-  const L = cum[m];
-  const n = Math.max(6, Math.min(400, Math.round(L / rules.spacing)));
-  const Q = []; let seg = 0;
+  const L = cum[m], Q = []; let seg = 0;
   for (let k = 0; k < n; k++) {
     const t = k * L / n;
     while (cum[seg + 1] < t) seg++;
     const a = pts[seg], b = pts[(seg + 1) % m], f = (t - cum[seg]) / Math.max(cum[seg + 1] - cum[seg], 1e-9);
-    Q.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f });
+    Q.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: (a.z || 0) + ((b.z || 0) - (a.z || 0)) * f });
   }
-  // move control points until the curve runs through the drawn points
-  let C = Q.map(p => ({ ...p }));
+  return { Q, L, cum };
+}
+const loopLength = pts => { let L = 0; for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; L += Math.hypot(b.x - a.x, b.y - a.y); } return L; };
+const pointCount = L => Math.max(6, Math.min(400, Math.round(L / rules.spacing)));
+// move control points until the curve runs through Q (x, y and height)
+function fitThrough(Q) {
+  const n = Q.length; let C = Q.map(p => ({ ...p }));
   for (let it = 0; it < 40; it++) {
     C = C.map((p, i) => {
       const a = C[(i - 1 + n) % n], c = C[(i + 1) % n];
-      return { x: p.x + Q[i].x - (a.x + 4 * p.x + c.x) / 6, y: p.y + Q[i].y - (a.y + 4 * p.y + c.y) / 6 };
+      return { x: p.x + Q[i].x - (a.x + 4 * p.x + c.x) / 6, y: p.y + Q[i].y - (a.y + 4 * p.y + c.y) / 6, z: p.z + Q[i].z - (a.z + 4 * p.z + c.z) / 6 };
     });
   }
-  P = C; A = C.map(p => ({ ...p })); PIN = C.map(() => false); U = C.map(() => 0); flips = []; clearSel();
+  return C;
+}
+// the closed B-spline of control points C (heights Z) as a fine polyline, 16 points per span
+function denseLoop(C, Z) {
+  const n = C.length, out = [];
+  for (let i = 0; i < n; i++) for (let k = 0; k < 16; k++) {
+    const t = k / 16, t2 = t * t, t3 = t2 * t, u = 1 - t, w = [u * u * u / 6, (3 * t3 - 6 * t2 + 4) / 6, (-3 * t3 + 3 * t2 + 3 * t + 1) / 6, t3 / 6];
+    let x = 0, y = 0, z = 0;
+    for (let m = 0; m < 4; m++) { const c = (i - 1 + m + n) % n; x += w[m] * C[c].x; y += w[m] * C[c].y; z += w[m] * (Z ? Z[c] || 0 : 0); }
+    out.push({ x, y, z });
+  }
+  return out;
+}
+function buildFromStroke(pts) {
+  const { Q } = resampleLoop(pts, pointCount(loopLength(pts)));
+  const C = fitThrough(Q);
+  P = C.map(p => ({ x: p.x, y: p.y })); A = P.map(p => ({ ...p })); PIN = C.map(() => false); U = C.map(() => 0); flips = []; clearSel();
+}
+// Point spacing changed with a track already there: rebuild it with the new number of points, same shape, start line,
+// heights and pins. Always from the shape before this round of edits (base), so dragging the number never wears it down.
+let respaceBase = null;
+function respace() {
+  if (mode !== 'edit' || P.length < 4) return;
+  if (!respaceBase) { pushUndo(); respaceBase = snapshot(); }
+  const b = respaceBase, dp = denseLoop(b.P, b.U), n = pointCount(loopLength(dp));
+  if (n === P.length) return;
+  sel = new Set(); selAnchor = -1; hover = -1;
+  if (n === b.P.length) {           // back to the original count: put the original points back exactly
+    P = b.P.map(p => ({ ...p })); A = b.A.map(p => ({ ...p })); U = b.U.slice(); PIN = b.PIN.slice(); flips = b.flips.map(f => ({ ...f }));
+    syncSel(); toast(`Back to ${n} points`); return;
+  }
+  const rp = resampleLoop(dp, n), CP = fitThrough(rp.Q), CA = fitThrough(resampleLoop(denseLoop(b.A), n).Q);
+  // pins: the new point nearest along the road to each old pinned point
+  const pin = new Array(n).fill(false), Lo = rp.L;
+  b.PIN.forEach((on, i) => { if (on) pin[Math.round(rp.cum[i * 16] / Lo * n) % n] = true; });
+  P = CP.map(p => ({ x: p.x, y: p.y })); A = CA.map(p => ({ x: p.x, y: p.y })); U = CP.map(p => Math.round(p.z * 1000) / 1000); PIN = pin;
+  flips = b.flips.map(f => ({ ...f }));
+  syncSel(); toast(`Respaced: ${b.P.length} -> ${n} points`);
 }
 
 // ------------------------------------------------------------------ elevation editing
@@ -1406,7 +1447,8 @@ function bindNumber(id, obj, key, after) {
 bindNumber('nWidth', rules, 'width');
 bindNumber('nGap', rules, 'gap');
 bindNumber('nMargin', rules, 'margin');
-bindNumber('nSpacing', rules, 'spacing');
+bindNumber('nSpacing', rules, 'spacing', respace);
+$('nSpacing').addEventListener('blur', () => { respaceBase = null; });
 bindNumber('nSeg', rules, 'seg');
 bindNumber('nBridgeH', rules, 'bridgeH');
 bindNumber('nRamp', rules, 'rampSlope');
@@ -1458,7 +1500,7 @@ stage.addEventListener('drop', e => { e.preventDefault(); $('drop').classList.re
 function blenderScript() {
   evaluate(); crossings = findCrossings(); computeHeights();
   const pts = P.map((p, i) => `    (${p.x.toFixed(4)}, ${p.y.toFixed(4)}, ${zc[i].toFixed(4)}),`).join('\n');
-  const pyStr = v => JSON.stringify(String(v)).replace(/[\u007f- ]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+  const pyStr = v => JSON.stringify(String(v)).split('').map(ch => ch.charCodeAt(0) > 126 ? '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0') : ch).join('');
   return `# Road Solver export - paste into Blender's Text Editor and press Run.
 # Cyclic NURBS path (order 4) through the solved control points, placed at the 3D cursor.
 # Same axes as the solver view: +X right, +Y up (top view), Z = height (your point heights + bridge ramps).
@@ -1466,6 +1508,7 @@ function blenderScript() {
 # it unchanged. Twist is Z-Up so the road stays level across on the ramps (Minimum twist banks it).
 # The road copy is scaled across to ROAD_WIDTH: the solver kept lanes apart and bends open for that width,
 # and a wider road than that folds on the tight bends (on a ramp the folds stand up as walls).
+# If the file has no ROAD_SOURCE object, a piece like track 1's road.001 is built, hidden, and kept for next time.
 import bpy, math
 from mathutils import Vector, Matrix
 
@@ -1474,7 +1517,71 @@ ${pts}
 ]
 ROAD_SOURCE = ${pyStr(rules.roadSource || 'road.001')}      # road piece with Mirror -> Array -> Curve (track 1)
 ROAD_WIDTH = ${rules.matchWidth ? rules.width.toFixed(4) : 'None'}      # BU, the solver's road width (None = keep the piece's own width)
+SEG = ${rules.seg.toFixed(4)}             # BU, length of one road segment
+BUILD_PIECE = True        # no ROAD_SOURCE in this file: build one like track 1's road.001 (hidden, reused next time)
 NAME = "solved"
+
+
+def solver_material(name, rgb):
+    m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
+    m.diffuse_color = (rgb[0], rgb[1], rgb[2], 1.0)
+    try:
+        if m.node_tree is None:
+            m.use_nodes = True
+        bsdf = next((n for n in m.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+        if bsdf:
+            bsdf.inputs["Base Color"].default_value = (rgb[0], rgb[1], rgb[2], 1.0)
+            bsdf.inputs["Roughness"].default_value = 0.8
+    except Exception:
+        pass
+    return m
+
+
+def make_road_piece(name, seg):
+    # Same cross-section as track 1's road.001 (9.04 wide): half a road, Mirror X makes the other half.
+    # Bands from the centre: yellow centre dash (2 rows on, 1 off), asphalt, raised yellow edge line, dark shoulder.
+    k = 2.150369882583618
+    xs = [0.0, -0.0531 * k, -1.7915 * k, -1.8375 * k, -2.1024 * k]
+    zs = [0.0, 0.0, 0.0, 0.0088 * k, 0.0088 * k]
+    rows, nc = 6, 5
+    ys = [-seg / 2 + seg * r / rows for r in range(rows + 1)]
+    verts = [(x, y, z) for y in ys for x, z in zip(xs, zs)]
+    faces, mats = [], []
+    for r in range(rows):
+        for c in range(nc - 1):
+            a = r * nc + c
+            faces.append((a, a + nc, a + nc + 1, a + 1))
+            mats.append((1 if r % 3 != 2 else 0) if c == 0 else 0 if c == 1 else 1 if c == 2 else 2)
+    me = bpy.data.meshes.new(name)
+    me.from_pydata(verts, [], faces)
+    for m in (solver_material("solver road", (0.006, 0.007, 0.014)), solver_material("solver yellow", (0.638, 0.552, 0.0)),
+              solver_material("solver shoulder", (0.0, 0.031, 0.001))):
+        me.materials.append(m)
+    for p, mi in zip(me.polygons, mats):
+        p.material_index = mi
+    uv = me.uv_layers.new(name="UVMap")
+    half = -xs[-1]
+    for lp in me.loops:
+        co = me.vertices[lp.vertex_index].co
+        uv.data[lp.index].uv = (0.5 + co.x / (2 * half), 0.5 + co.y / seg)
+    me.update()
+    ob = bpy.data.objects.new(name, me)
+    col.objects.link(ob)
+    mir = ob.modifiers.new("Mirror", 'MIRROR')
+    mir.use_axis[0] = True
+    mir.use_mirror_merge = True
+    arr = ob.modifiers.new("Array", 'ARRAY')
+    arr.fit_type = 'FIXED_COUNT'
+    arr.count = 1
+    arr.use_relative_offset = True
+    arr.relative_offset_displace = (0.0, -1.0, 0.0)
+    arr.use_merge_vertices = False
+    crv = ob.modifiers.new("Curve", 'CURVE')
+    crv.deform_axis = 'POS_X'
+    ob.hide_render = True
+    ob.hide_set(True)
+    print("Road Solver: built road piece '%s' (hidden, used as the template)" % name)
+    return ob
 
 col = bpy.context.collection
 origin = bpy.context.scene.cursor.location.copy()
@@ -1500,6 +1607,8 @@ path.location = origin
 path.rotation_euler = (0.0, 0.0, -math.pi / 2)
 
 src = bpy.data.objects.get(ROAD_SOURCE)
+if src is None and BUILD_PIECE:
+    src = make_road_piece(ROAD_SOURCE, SEG)
 if src is None:
     print("Road Solver: '%s' not found - made the path only" % ROAD_SOURCE)
 else:
@@ -1510,6 +1619,8 @@ else:
         if m:
             road.data.materials[i] = m.copy()
     col.objects.link(road)
+    road.hide_render = False
+    road.hide_set(False)
     road.location = origin
     road.rotation_euler = (0.0, 0.0, 0.0)
     arr = next((md for md in src.modifiers if md.type == 'ARRAY'), None)
@@ -1612,6 +1723,8 @@ readColors(); resize(); syncMode(); syncSel();
 if (cam.on) { cam.on = false; setView3d(true); }
 window.__roadSolver = { get P() { return P; }, get stats() { return stats; }, get crossings() { return crossings; }, get bridges() { return bridges; }, get view() { return { ...view }; }, get heights() { return Array.from(zc); }, blenderScript, loadDemo,
   get U() { return U.slice(); }, get sel() { return [...sel]; }, get cam() { return { ...cam }; }, rules,
+  setSpacing: v => { rules.spacing = v; respace(); }, endSpacing: () => { respaceBase = null; }, pin: idx => { for (const i of idx) PIN[i] = true; },
+  get PIN() { return PIN.slice(); }, get A() { return A.map(p => ({ ...p })); },
   select: idx => { sel = new Set(idx); selAnchor = idx.length ? idx[idx.length - 1] : -1; syncSel(); }, setSelHeight, rampSel, levelSel, nudgeSel, setView3d, fit3d,
   slopes: () => { analyse(); return Array.from(buf.slope); }, sampleZ: () => { analyse(); return Array.from(buf.z); },
   profile: () => { analyse(); const { s, sig, ef, z, zIdeal, uS, slope, kap } = buf; return { s: Array.from(s), sig: Array.from(sig), ef: Array.from(ef), z: Array.from(z), zIdeal: Array.from(zIdeal), uS: Array.from(uS), slope: Array.from(slope), kap: Array.from(kap) }; },
