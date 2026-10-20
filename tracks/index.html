@@ -1,0 +1,1625 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Road Solver</title>
+<style>
+:root {
+  --bg: #ecebe5; --canvas: #f7f6f1; --panel: #ffffff; --ink: #1c1e22; --muted: #6a6e76; --line: #dcd8cd;
+  --grid: #e8e5dc; --grid-major: #d5d1c4; --road: #363941; --centre: #f0cf5f; --ctrl: #ffffff; --ctrl-stroke: #1c1e22;
+  --accent: #2563c9; --ok: #1d8048; --warn: #c77d12; --bad: #cf3326; --curb-red: #c8202e; --curb-white: #f6f3ec;
+  --btn: #f3f1eb; --btn-hover: #e8e5dc; --pill-bg: rgba(255,255,255,.92);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121417; --canvas: #181b1f; --panel: #1e2126; --ink: #e7e8eb; --muted: #959ba5; --line: #2d3138;
+    --grid: #1f2328; --grid-major: #2b3037; --road: #50545e; --centre: #e2c457; --ctrl: #1e2126; --ctrl-stroke: #e7e8eb;
+    --accent: #6a9cf0; --ok: #4cc27e; --warn: #e6a23c; --bad: #f06455; --curb-red: #d63a46; --curb-white: #ebe7de;
+    --btn: #262a30; --btn-hover: #30353c; --pill-bg: rgba(30,33,38,.92);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121417; --canvas: #181b1f; --panel: #1e2126; --ink: #e7e8eb; --muted: #959ba5; --line: #2d3138;
+  --grid: #1f2328; --grid-major: #2b3037; --road: #50545e; --centre: #e2c457; --ctrl: #1e2126; --ctrl-stroke: #e7e8eb;
+  --accent: #6a9cf0; --ok: #4cc27e; --warn: #e6a23c; --bad: #f06455; --curb-red: #d63a46; --curb-white: #ebe7de;
+  --btn: #262a30; --btn-hover: #30353c; --pill-bg: rgba(30,33,38,.92);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; display: flex; overflow: hidden; }
+#stage { position: relative; flex: 1; min-width: 0; }
+canvas { display: block; width: 100%; height: 100%; touch-action: none; background: var(--canvas); cursor: crosshair; }
+canvas.edit { cursor: default; }
+canvas.grab { cursor: grabbing; }
+#pill { position: absolute; top: 12px; left: 12px; max-width: calc(100% - 150px); background: var(--pill-bg); border: 1px solid var(--line); border-radius: 999px;
+  padding: 5px 12px 5px 10px; display: flex; align-items: center; gap: 8px; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+#pill i { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; }
+#pill span.extra { font-weight: 400; color: var(--muted); }
+#hint { position: absolute; left: 12px; right: 12px; bottom: 10px; color: var(--muted); font-size: 12px; pointer-events: none; }
+#toast { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); background: var(--ink); color: var(--panel); padding: 7px 12px;
+  border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 80%; }
+#toast.show { opacity: .95; }
+#drop { position: absolute; inset: 0; border: 2px dashed var(--accent); display: none; align-items: center; justify-content: center;
+  color: var(--accent); font-weight: 600; background: color-mix(in srgb, var(--canvas) 70%, transparent); pointer-events: none; }
+#drop.show { display: flex; }
+aside { width: 312px; flex: none; background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding: 14px 16px 24px; }
+h1 { font-size: 15px; margin: 0; }
+.sub { color: var(--muted); font-size: 12px; margin: 2px 0 12px; }
+section { border-top: 1px solid var(--line); padding: 12px 0 10px; }
+h2 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; font-weight: 650; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0; }
+.row label { flex: 1; }
+.row small { color: var(--muted); }
+input[type=number] { width: 78px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--canvas); color: var(--ink);
+  font: inherit; font-variant-numeric: tabular-nums; text-align: right; }
+input[type=text] { width: 110px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--canvas); color: var(--ink); font: inherit; }
+input[type=range] { width: 120px; }
+#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: none; }
+#stage.v3 #gl { display: block; }
+#stage.v3 #cv { background: transparent; position: relative; }
+#viewBtns { position: absolute; top: 12px; right: 12px; display: flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--pill-bg); }
+#viewBtns button { border: 0; border-radius: 0; background: transparent; padding: 4px 11px; font-weight: 600; }
+#viewBtns button.on { background: var(--accent); color: #fff; }
+input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; }
+button { font: inherit; color: var(--ink); background: var(--btn); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+button:hover { background: var(--btn-hover); }
+button.on { border-color: var(--accent); color: var(--accent); }
+button.primary { background: var(--accent); border-color: transparent; color: #fff; }
+button.primary:hover { filter: brightness(1.08); }
+.stat { display: flex; justify-content: space-between; margin: 3px 0; }
+.stat span { color: var(--muted); }
+.stat b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.good { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+.note { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+.legend { display: grid; grid-template-columns: 14px 1fr; gap: 4px 8px; align-items: center; font-size: 12px; color: var(--muted); }
+.legend i { width: 14px; height: 8px; border-radius: 2px; display: block; }
+kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--canvas); }
+@media (max-width: 760px) {
+  body { flex-direction: column; overflow: auto; }
+  #stage { height: 64vh; flex: none; }
+  aside { width: auto; border-left: 0; border-top: 1px solid var(--line); }
+}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="gl"></canvas>
+  <canvas id="cv"></canvas>
+  <div id="pill"><i></i><span id="pillText">Draw a loop</span><span class="extra" id="pillExtra"></span></div>
+  <div id="viewBtns"><button id="b2d" class="on" title="Top view (key 3 toggles)">2D</button><button id="b3d" title="3D view with heights (key 3 toggles)">3D</button></div>
+  <div id="toast"></div>
+  <div id="drop">Drop a reference image</div>
+  <div id="hint"></div>
+</div>
+<aside>
+  <h1>Road Solver</h1>
+  <div class="sub">Draw a road loop. Lanes that get too close and bends that would fold the curb get pushed out live.</div>
+
+  <section>
+    <h2>Track</h2>
+    <div class="btns">
+      <button id="bDraw">Draw new</button>
+      <button id="bDemo">Demo</button>
+      <button id="bUndo">Undo</button>
+      <button id="bFit">Fit view</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Solver</h2>
+    <div class="row"><label for="cLive">Live solve</label><input type="checkbox" id="cLive" checked></div>
+    <div class="btns">
+      <button id="bReset" title="Put every point back where you drew it">Reset to drawing</button>
+      <button id="bKeep" title="Make the solved shape the new drawing">Keep solved shape</button>
+      <button id="bPins">Clear pins</button>
+    </div>
+    <p class="note">The solver keeps points as close to your drawing as it can. Pinned points (right-click) never move.</p>
+  </section>
+
+  <section>
+    <h2>Elevation</h2>
+    <div class="row"><label for="nHeight">Height of selected <small id="selCount">none selected</small></label><input type="number" id="nHeight" step="0.5" placeholder="–"></div>
+    <div class="btns">
+      <button id="bRamp" title="Points between the first and last selected point ease smoothly from one height to the other">Ramp between ends</button>
+      <button id="bLevel" title="Give every selected point the same height (their average)">Level</button>
+      <button id="bGround" title="Put the selected points back on the ground">Ground</button>
+    </div>
+    <div class="row"><label for="cEase">Ease neighbours <small>at the max slope</small></label><input type="checkbox" id="cEase" checked></div>
+    <div class="btns">
+      <button id="bSelAll">Select all</button>
+      <button id="bSelNone">Clear selection</button>
+      <button id="bBake" title="Copy the automatic bridge ramps into the point heights so you can edit them by hand">Bake bridge ramps</button>
+      <button id="bFlat" title="Every point back to height 0 (bridges still ramp automatically)">Flatten all</button>
+    </div>
+    <p class="note">Click a point to select it, <kbd>Shift</kbd>+click for the run of points between, <kbd>Ctrl</kbd>+click to toggle one, <kbd>Shift</kbd>+drag for a box. In 3D, drag a selected point up or down. <kbd>PgUp</kbd>/<kbd>PgDn</kbd> nudge by 0.5. Unselected neighbours ease in and out so no part of the road gets steeper than the max slope. Bridges still add their ramps on top.</p>
+  </section>
+
+  <section>
+    <h2>Status</h2>
+    <div class="stat"><span>Length</span><b id="sLen">–</b></div>
+    <div class="stat"><span>Narrowest gap between edges</span><b id="sGap">–</b></div>
+    <div class="stat"><span>Tightest bend radius</span><b id="sRad">–</b></div>
+    <div class="stat"><span>Bridges</span><b id="sCross">–</b></div>
+    <div class="stat"><span>Steepest slope <small>anywhere on the road</small></span><b id="sSlope">–</b></div>
+    <div class="stat"><span>Blender road segments</span><b id="sSeg">–</b></div>
+    <div class="stat"><span>Control points</span><b id="sPts">–</b></div>
+  </section>
+
+  <section>
+    <h2>Rules</h2>
+    <div class="row"><label for="nWidth">Road width <small>BU</small></label><input type="number" id="nWidth" step="0.01" min="1"></div>
+    <div class="row"><label for="nGap">Min gap between edges</label><input type="number" id="nGap" step="0.1" min="0"></div>
+    <div class="row"><label for="nMargin">Bend margin <small>past fold</small></label><input type="number" id="nMargin" step="0.1" min="0"></div>
+    <div class="row"><label for="cWalls">Include red/white walls <small>+0.61 each side</small></label><input type="checkbox" id="cWalls"></div>
+    <div class="row"><label for="nSpacing">Point spacing when drawing</label><input type="number" id="nSpacing" step="0.5" min="2"></div>
+    <div class="row"><label for="nSeg">Road segment length</label><input type="number" id="nSeg" step="0.001" min="0.1"></div>
+    <div class="row"><label for="nBridgeH">Bridge height <small>BU</small></label><input type="number" id="nBridgeH" step="0.5" min="0.5"></div>
+    <div class="row"><label for="nRamp">Max ramp slope <small>deg</small></label><input type="number" id="nRamp" step="1" min="1" max="45"></div>
+    <p class="note" id="ruleNote"></p>
+    <div class="legend" style="margin-top:8px">
+      <i style="background:var(--bad)"></i><span>Roads overlap / curb folds</span>
+      <i style="background:var(--warn)"></i><span>Closer than the min gap / bend tighter than the margin</span>
+      <i style="background:var(--accent)"></i><span>Bridge (arrow = road that goes over; click to flip) / how far a point got pushed</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Reference image</h2>
+    <div class="btns"><button id="bImg">Choose image…</button><button id="bImgX">Remove</button></div>
+    <input type="file" id="fImg" accept="image/*" hidden>
+    <div class="row"><label for="nImgW">Width <small>BU</small></label><input type="number" id="nImgW" step="1" min="1"></div>
+    <div class="row"><label for="nImgX">Centre X / Y</label><span><input type="number" id="nImgX" step="1" style="width:62px"> <input type="number" id="nImgY" step="1" style="width:62px"></span></div>
+    <div class="row"><label for="rImgO">Opacity</label><input type="range" id="rImgO" min="0" max="1" step="0.05"></div>
+    <p class="note">Or drop an image on the canvas. It is only shown here, not saved.</p>
+  </section>
+
+  <section>
+    <h2>Export</h2>
+    <div class="row"><label for="tRoad">Road piece in Blender</label><input type="text" id="tRoad" spellcheck="false"></div>
+    <div class="row"><label for="cMatch">Scale it to the road width <small>above</small></label><input type="checkbox" id="cMatch" checked></div>
+    <div class="btns"><button class="primary" id="bCopy">Copy Blender script</button><button id="bSave">Download .py</button></div>
+    <div class="btns" style="margin-top:6px"><button id="bSaveL" title="Points, heights, pins, flips and rules as a .json file">Save layout</button><button id="bOpenL">Open layout…</button></div>
+    <input type="file" id="fLayout" accept=".json,application/json" hidden>
+    <p class="note">Paste into Blender's Text Editor and run. It makes a cyclic NURBS path at the 3D cursor (same axes as this view) and, if the road piece exists, a road copy with Array + Curve, with the count and a tiny path scale set so the loop closes exactly. The copy is scaled across to the road width set here, so Blender builds the same width the solver checked.</p>
+  </section>
+</aside>
+
+<script>
+(() => {
+'use strict';
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+
+// ------------------------------------------------------------------ constants
+const K = 8;                 // curve samples per control span
+const WALL_OUT = 0.61;       // red/white wall: 0.03 clearance + 0.58 block
+const ALPHA = 0.005;         // how hard points are pulled back to where you put them
+const DAMP = 0.5, CAP = 0.5;  // solver: damping and max move per step (BU)
+const PEN = 50;               // clipping penalty weight vs. the pull back to your drawing
+const STORE = 'roadSolver.v1';
+
+// uniform cubic B-spline basis (and 1st/2nd derivatives) at t = k/K, weights for P[i-1], P[i], P[i+1], P[i+2]
+const B = [], DB = [], DDB = [];
+for (let k = 0; k < K; k++) {
+  const t = k / K, t2 = t * t, t3 = t2 * t, u = 1 - t;
+  B.push([u * u * u / 6, (3 * t3 - 6 * t2 + 4) / 6, (-3 * t3 + 3 * t2 + 3 * t + 1) / 6, t3 / 6]);
+  DB.push([-u * u / 2, (3 * t2 - 4 * t) / 2, (-3 * t2 + 2 * t + 1) / 2, t2 / 2]);
+  DDB.push([u, 3 * t - 2, 1 - 3 * t, t]);
+}
+
+// ------------------------------------------------------------------ state
+let P = [], A = [], PIN = [];
+let U = [];                  // height you set on each point (BU); bridges ramp on top of it
+let sel = new Set(), selAnchor = -1;
+const rules = { width: 9.04, gap: 2.5, margin: 0.5, walls: false, spacing: 6, seg: 4.228, bridgeH: 4, rampSlope: 10,
+                ease: true, roadSource: 'road.001', matchWidth: true };
+const SIDE_CLEAR = 1.5;      // roads at least this far apart in height may pass closer than the min gap
+const MIN_EDGE = 0.08;       // inner-edge length factor floor (a fold is flagged separately)
+let flips = [];              // crossings where you flipped which road goes over (tracked by position)
+let live = true, mode = 'draw', stroke = null, drag = null, hover = -1, spaceDown = false;
+const view = { cx: 0, cy: 0, zoom: 4 };
+const cam = { on: false, yaw: -1.95, pitch: 0.62, dist: 160, tx: 0, ty: 0, tz: 0 };   // starts looking north like the 2D view
+const ref = { img: null, width: 100, opacity: 0.5, x: 0, y: 0 };
+let undoStack = [];
+let idle = false, needsRender = true, dpr = 1, colors = {};
+let pairs = [], crossings = [], bridges = [], stats = null, zc = new Float64Array(0);
+
+const halfEff = () => rules.width / 2 + (rules.walls ? WALL_OUT : 0);
+const rMin = () => halfEff() + rules.margin;
+
+// ------------------------------------------------------------------ curve evaluation (buffers reused)
+let buf = { M: -1 };
+function ensure(M) {
+  if (buf.M === M) return;
+  buf = { M, S: new Float64Array(2 * M), D1: new Float64Array(2 * M), D2: new Float64Array(2 * M), kap: new Float64Array(M),
+          s: new Float64Array(M + 1), gS: new Float64Array(2 * M), g1: new Float64Array(2 * M), g2: new Float64Array(2 * M),
+          gap: new Uint8Array(M), bend: new Uint8Array(M), nx: new Float64Array(M), ny: new Float64Array(M),
+          z: new Float64Array(M), zIdeal: new Float64Array(M), uS: new Float64Array(M), sig: new Float64Array(M + 1),
+          ef: new Float64Array(M), steep: new Uint8Array(M), slope: new Float64Array(M) };
+}
+function evaluate() {
+  const n = P.length, M = n * K;
+  ensure(M);
+  const { S, D1, D2, kap, s, nx, ny } = buf;
+  for (let i = 0; i < n; i++) {
+    const a = P[(i - 1 + n) % n], b = P[i], c = P[(i + 1) % n], d = P[(i + 2) % n];
+    for (let k = 0; k < K; k++) {
+      const j = 2 * (i * K + k), w = B[k], w1 = DB[k], w2 = DDB[k];
+      S[j] = w[0] * a.x + w[1] * b.x + w[2] * c.x + w[3] * d.x;
+      S[j + 1] = w[0] * a.y + w[1] * b.y + w[2] * c.y + w[3] * d.y;
+      D1[j] = w1[0] * a.x + w1[1] * b.x + w1[2] * c.x + w1[3] * d.x;
+      D1[j + 1] = w1[0] * a.y + w1[1] * b.y + w1[2] * c.y + w1[3] * d.y;
+      D2[j] = w2[0] * a.x + w2[1] * b.x + w2[2] * c.x + w2[3] * d.x;
+      D2[j + 1] = w2[0] * a.y + w2[1] * b.y + w2[2] * c.y + w2[3] * d.y;
+    }
+  }
+  s[0] = 0;
+  for (let j = 0; j < M; j++) {
+    const x1 = D1[2 * j], y1 = D1[2 * j + 1], x2 = D2[2 * j], y2 = D2[2 * j + 1];
+    const sp = Math.hypot(x1, y1);
+    kap[j] = sp > 1e-9 ? (x1 * y2 - y1 * x2) / (sp * sp * sp) : 0;
+    nx[j] = sp > 1e-9 ? -y1 / sp : 0; ny[j] = sp > 1e-9 ? x1 / sp : 1;
+    const jn = (j + 1) % M;
+    s[j + 1] = s[j] + Math.hypot(S[2 * jn] - S[2 * j], S[2 * jn + 1] - S[2 * j + 1]);
+  }
+}
+const arcDist = (a, b, L) => { const d = Math.abs(a - b); return Math.min(d, L - d); };
+const cellKey = (x, y) => (x + 100000) * 200003 + (y + 100000);
+
+// centreline crossing itself = the roads cross there and need a bridge
+function findCrossings() {
+  const { M, S, s } = buf, L = s[M];
+  const cell = 4, inv = 1 / cell, grid = new Map();
+  for (let j = 0; j < M; j++) {
+    const jn = (j + 1) % M;
+    const x0 = Math.floor(Math.min(S[2 * j], S[2 * jn]) * inv), x1 = Math.floor(Math.max(S[2 * j], S[2 * jn]) * inv);
+    const y0 = Math.floor(Math.min(S[2 * j + 1], S[2 * jn + 1]) * inv), y1 = Math.floor(Math.max(S[2 * j + 1], S[2 * jn + 1]) * inv);
+    for (let gx = x0; gx <= x1; gx++) for (let gy = y0; gy <= y1; gy++) {
+      const k = cellKey(gx, gy); let a = grid.get(k); if (!a) { a = []; grid.set(k, a); } a.push(j);
+    }
+  }
+  const out = [], seen = new Set(), minSep = 2 * halfEff();
+  for (const list of grid.values()) {
+    for (let p = 0; p < list.length; p++) for (let q = p + 1; q < list.length; q++) {
+      let i = list[p], j = list[q]; if (i > j) [i, j] = [j, i];
+      if (arcDist(s[i], s[j], L) < minSep) continue;
+      const key = i * M + j; if (seen.has(key)) continue; seen.add(key);
+      const in_ = (i + 1) % M, jn = (j + 1) % M;
+      const ax = S[2 * i], ay = S[2 * i + 1], rx = S[2 * in_] - ax, ry = S[2 * in_ + 1] - ay;
+      const bx = S[2 * j], by = S[2 * j + 1], qx = S[2 * jn] - bx, qy = S[2 * jn + 1] - by;
+      const den = rx * qy - ry * qx; if (Math.abs(den) < 1e-12) continue;
+      const t = ((bx - ax) * qy - (by - ay) * qx) / den, u = ((bx - ax) * ry - (by - ay) * rx) / den;
+      if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+      const sa = s[i] + t * (s[i + 1] - s[i]), sb = s[j] + u * (s[j + 1] - s[j]);
+      const x = ax + t * rx, y = ay + t * ry;
+      if (!out.some(c => Math.hypot(c.x - x, c.y - y) < 2)) out.push({ x, y, sa, sb });
+    }
+  }
+  return out;
+}
+const easeC = t => t <= 0 ? 0 : t >= 1 ? 1 : 0.5 - 0.5 * Math.cos(Math.PI * t);
+// 1 when two bits of road are at the same height, 0 once they are SIDE_CLEAR apart (smooth, so the solver stays stable)
+const levelFactor = dz => dz >= SIDE_CLEAR ? 0 : 1 - easeC(dz / SIDE_CLEAR);
+function idxAt(sv) {               // sample index whose arc position is at or just before sv
+  const { M, s } = buf; let lo = 0, hi = M - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (s[mid] <= sv) lo = mid; else hi = mid - 1; }
+  return lo;
+}
+const tanSlope = () => Math.tan(Math.max(1, Math.min(45, rules.rampSlope)) * Math.PI / 180);
+// Ramp shape: eased in and out over about a span and a half each, the max slope in between. A ramp of height h needs
+// h/tan + E of road (a plain cosine ramp needs 1.57 h/tan); a short one is just the S-curve, 2h/tan long.
+const easeLen = () => Math.max(4, 1.5 * (buf.span || 6));
+const tanPlan = () => tanSlope();
+const rampFor = h => { const t = tanPlan(), E = easeLen(), a = Math.abs(h); return a >= t * E ? a / t + E : 2 * a / t; };
+const climbIn = d => { const t = tanPlan(), E = easeLen(); return d >= 2 * E ? t * (d - E) : t * Math.max(0, d) / 2; };   // most a ramp can climb in d
+function rampFrac(x, R) {           // share of a ramp's height covered after x of its length R (0 at the top, 1 at the foot)
+  if (x <= 0) return 0;
+  if (x >= R) return 1;
+  const e = Math.min(easeLen(), R / 2), head = u => u / 2 - e / (2 * Math.PI) * Math.sin(Math.PI * u / e);
+  const I = x < e ? head(x) : x <= R - e ? e / 2 + (x - e) : (R - e) - head(R - x);
+  return I / (R - e);
+}
+const rampLength = () => rampFor(rules.bridgeH);
+// Ramps are measured along the road's tighter edge, not its centre line. On a bend of radius R the inside edge is
+// only (R - w/2)/R as long as the centre, so a ramp that climbs at 10 deg along the centre climbs 5x steeper on the
+// inside of a hairpin (the twisted "fans" that broke the Blender road). sig[] is that inside-edge length.
+// The heights live on control points about one span apart, so the spline can't stop climbing exactly at a bend:
+// ramps are planned with the tightest edge factor within about a span either side (then blurred), which pauses
+// them a little early and resumes a little late, and the built road stays under the max slope.
+function edgeLengths() {
+  const { M, s, kap, ef, sig } = buf, hw = rules.width / 2, n = P.length, L = s[M];
+  for (let j = 0; j < M; j++) ef[j] = Math.max(MIN_EDGE, 1 - hw * Math.abs(kap[j]));
+  const span = L / Math.max(1, n), r = Math.max(1, Math.round(1.25 * K)), b = Math.max(1, Math.round(0.5 * K));
+  const mn = new Float64Array(M), sm = new Float64Array(M);
+  for (let j = 0; j < M; j++) { let m = ef[j]; for (let d = -r; d <= r; d++) m = Math.min(m, ef[(j + d + M) % M]); mn[j] = m; }
+  for (let j = 0; j < M; j++) { let t = 0; for (let d = -b; d <= b; d++) t += mn[(j + d + M) % M]; sm[j] = t / (2 * b + 1); }
+  sig[0] = 0;
+  for (let j = 0; j < M; j++) sig[j + 1] = sig[j] + (s[j + 1] - s[j]) * 0.5 * (sm[j] + sm[(j + 1) % M]);
+  buf.span = span;
+}
+const splineAt = (vals, j) => { const n = vals.length, i = Math.floor(j / K), k = j % K; let v = 0; for (let m = 0; m < 4; m++) v += B[k][m] * vals[(i - 1 + m + n) % n]; return v; };
+// every crossing becomes a bridge. By default the later pass (counting from the start line) goes over, unless your
+// heights already put the other road higher; clicking the marker flips it. The over road rises to the under road's
+// height + bridge height across the crossing and ramps back down to your heights at the max slope.
+function computeHeights() {
+  const { M, D1, s, z, zIdeal, uS, sig } = buf, L = s[M], n = P.length;
+  const H = rules.bridgeH, hw = halfEff();
+  if (U.length !== n) U = Array.from({ length: n }, (_, i) => U[i] || 0);
+  edgeLengths();
+  const Ls = sig[M];
+  for (let j = 0; j < M; j++) uS[j] = splineAt(U, j);
+  const at = (arr, sv) => { const j = idxAt(sv), jn = (j + 1) % M, f = (sv - s[j]) / Math.max(1e-9, s[j + 1] - s[j]); return arr[j] + (arr[jn] - arr[j]) * f; };
+  const sigAt = sv => { const j = idxAt(sv), f = (sv - s[j]) / Math.max(1e-9, s[j + 1] - s[j]); return sig[j] + (sig[j + 1] - sig[j]) * f; };
+  const tan = j => { const x = D1[2 * j], y = D1[2 * j + 1], l = Math.hypot(x, y) || 1; return { x: x / l, y: y / l }; };
+  bridges = crossings.map(c => {
+    const ta = tan(idxAt(c.sa)), tb = tan(idxAt(c.sb));
+    const sinT = Math.max(0.17, Math.abs(ta.x * tb.y - ta.y * tb.x)), cosT = Math.abs(ta.x * tb.x + ta.y * tb.y);
+    const flip = flips.find(f => Math.hypot(f.x - c.x, f.y - c.y) < 2 * hw);
+    if (flip) { flip.x = c.x; flip.y = c.y; }
+    const ua = at(uS, c.sa), ub = at(uS, c.sb);
+    let overLater = Math.abs(ub - ua) > 0.5 ? ub > ua : true;
+    if (flip) overLater = !overLater;
+    return { x: c.x, y: c.y, so: overLater ? c.sb : c.sa, su: overLater ? c.sa : c.sb, dir: overLater ? tb : ta,
+             plateau: (hw + SIDE_CLEAR + hw * cosT) / sinT + 1, angle: Math.asin(Math.min(1, sinT)) * 180 / Math.PI, flipped: !!flip };
+  });
+  if (zc.length !== n) zc = new Float64Array(n);
+  for (let j = 0; j < M; j++) zIdeal[j] = uS[j];
+  let bumped = false;
+  for (const b of bridges) {
+    // clear the highest bit of the under road across the bridge's footprint, not just the crossing point
+    let under = at(uS, b.su);
+    for (let j = 0; j < M; j++) if (arcDist(s[j], b.su, L) <= b.plateau && uS[j] > under) under = uS[j];
+    const base = at(uS, b.so), want = under + H;
+    // Both ways round the loop the over road comes back to the under road. The bridge can only be as tall as the road
+    // between the two passes can climb at the max slope, and its ramps must stop before they reach the road below
+    // (otherwise they lift it too and a taller bridge gains nothing).
+    const wrap = v => ((v % L) + L) % L, fwd = (a, c) => (((c - a) % Ls) + Ls) % Ls;
+    const sP = sigAt(wrap(b.so + b.plateau)), sM = sigAt(wrap(b.so - b.plateau));
+    const uA = wrap(b.su - b.plateau), uB = wrap(b.su + b.plateau), sA = sigAt(uA), sB = sigAt(uB);
+    const fA = fwd(sP, sA), fB = fwd(sP, sB), bA = fwd(sA, sM), bB = fwd(sB, sM);
+    const dF = Math.min(fA, fB), landF = at(uS, fA <= fB ? uA : uB);
+    const dB = Math.min(bA, bB), landB = at(uS, bA <= bB ? uA : uB);
+    const cap = Math.min(landF + climbIn(dF), landB + climbIn(dB));
+    b.room = cap - under; b.capped = want > cap + 1e-6; b.gap = Math.min(dF, dB); b.need = rampFor(H);
+    const T = Math.min(want, cap);
+    b.lift = Math.max(0, T - base);
+    if (T - base <= 1e-6) continue;
+    // An absolute hump merged with max(), so its slope never adds to a slope of yours. Each side ramps down to the
+    // lowest of your heights within its reach; a side that would run into the under road lands on it instead.
+    const dP = new Float64Array(M), dM = new Float64Array(M), inPl = new Uint8Array(M);
+    for (let j = 0; j < M; j++) {
+      inPl[j] = arcDist(s[j], b.so, L) <= b.plateau ? 1 : 0;
+      dP[j] = (((sig[j] - sP) % Ls) + Ls) % Ls; dM[j] = (((sM - sig[j]) % Ls) + Ls) % Ls;
+    }
+    const side = (plus, dLim, land) => {
+      let lo = base, R = rampFor(T - lo);
+      for (let it = 0; it < 6; it++) {
+        let m = base;
+        for (let j = 0; j < M; j++) {
+          if (inPl[j]) continue;
+          const d = plus ? dP[j] : dM[j], other = plus ? dM[j] : dP[j];
+          if (d < Math.min(R, dLim) && d <= other && uS[j] < m) m = uS[j];
+        }
+        if (m >= lo - 1e-6) break;
+        lo = m; R = rampFor(T - lo);
+      }
+      if (R > dLim) return T > land ? { lo: land, R: dLim } : { lo: T, R: 0 };
+      return { lo, R };
+    };
+    const sp = side(true, dF, landF), sm = side(false, dB, landB);
+    for (let j = 0; j < M; j++) {
+      let v;
+      if (inPl[j]) v = T;
+      else {
+        const plus = dP[j] <= dM[j], d = plus ? dP[j] : dM[j], sd = plus ? sp : sm;
+        if (d >= sd.R) continue;
+        v = sd.lo + (T - sd.lo) * (1 - rampFrac(d, sd.R));
+      }
+      if (v > zIdeal[j]) { zIdeal[j] = v; bumped = true; }
+    }
+  }
+  if (!bumped) for (let i = 0; i < n; i++) zc[i] = U[i];
+  else {
+    // heights on the control points so the spline itself follows the profile (exactly what Blender will build)
+    let lo = 0; for (let i = 0; i < n; i++) lo = Math.min(lo, U[i]);
+    for (let i = 0; i < n; i++) zc[i] = zIdeal[i * K];
+    // a light smoothness term: control points aren't evenly spaced along the road, so a pure fit of a straight ramp
+    // ripples about a degree per span; this damps it without rounding off the bridge tops
+    const num = new Float64Array(n), den = new Float64Array(n), LAM = 0.2;
+    for (let it = 0; it < 60; it++) {
+      num.fill(0); den.fill(0);
+      for (let i = 0; i < n; i++) for (let k = 0; k < K; k++) {
+        let v = 0; for (let m = 0; m < 4; m++) v += B[k][m] * zc[(i - 1 + m + n) % n];
+        const r = zIdeal[i * K + k] - v;
+        for (let m = 0; m < 4; m++) { const c = (i - 1 + m + n) % n; num[c] += B[k][m] * r; den[c] += B[k][m]; }
+      }
+      for (let i = 0; i < n; i++) {
+        const sm = zc[(i - 2 + n) % n] - 4 * zc[(i - 1 + n) % n] + 6 * zc[i] - 4 * zc[(i + 1) % n] + zc[(i + 2) % n];
+        num[i] -= LAM * sm; den[i] += 6 * LAM;
+      }
+      for (let i = 0; i < n; i++) zc[i] = Math.max(lo, zc[i] + num[i] / den[i]);
+    }
+  }
+  for (let j = 0; j < M; j++) z[j] = splineAt(zc, j);
+  for (const b of bridges) b.clear = at(z, b.so) - at(z, b.su);
+}
+// pairs only count once they are this far apart along the road (ramped in, so nothing switches on with a jolt)
+const sepFrom = () => 4 * halfEff(), sepFull = () => 6 * halfEff();
+function sepWeight(sep) { const t = (sep - sepFrom()) / (sepFull() - sepFrom()); return t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t); }
+// sample pairs that are far apart along the road but close in space
+function findPairs(reach) {
+  const { M, S, s } = buf, L = s[M];
+  const minSep = sepFrom();
+  const inv = 1 / reach, grid = new Map(), r2 = reach * reach, out = [];
+  for (let j = 0; j < M; j++) {
+    const k = cellKey(Math.floor(S[2 * j] * inv), Math.floor(S[2 * j + 1] * inv));
+    let a = grid.get(k); if (!a) { a = []; grid.set(k, a); } a.push(j);
+  }
+  for (let i = 0; i < M; i++) {
+    const xi = S[2 * i], yi = S[2 * i + 1], gx = Math.floor(xi * inv), gy = Math.floor(yi * inv);
+    for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+      const a = grid.get(cellKey(gx + ox, gy + oy)); if (!a) continue;
+      for (const j of a) {
+        if (j <= i) continue;
+        const dx = xi - S[2 * j], dy = yi - S[2 * j + 1], d2 = dx * dx + dy * dy;
+        if (d2 >= r2) continue;
+        if (arcDist(s[i], s[j], L) < minSep) continue;
+        out.push(i, j, Math.sqrt(d2));
+      }
+    }
+  }
+  return out;
+}
+
+// ------------------------------------------------------------------ solver: one damped Gauss-Newton (Jacobi) step on
+//   sum over samples of (target gap - distance to its nearest other-lane sample)^2
+//   + sum over samples of (min radius - radius)^2 where the bend is too tight
+//   + ALPHA * squared distance from where you put each point
+let near = new Int32Array(0), nearD = new Float64Array(0), hS = new Float64Array(0), cb = new Float64Array(0);
+let stepScale = 1;
+// fills buf / pairs / crossings / near for the current P and returns the total penalty
+function energyAt() {
+  evaluate();
+  crossings = findCrossings();
+  computeHeights();
+  const hw = halfEff(), target = 2 * hw + rules.gap + 0.05, Rm = rMin() + 0.05;
+  pairs = findPairs(target + 3);
+  const { M, kap, s, z } = buf, L = s[M];
+  if (near.length !== M) { near = new Int32Array(M); nearD = new Float64Array(M); hS = new Float64Array(M); cb = new Float64Array(4 * M); }
+  // each sample's worst conflict (largest weighted shortfall) - a max of smooth terms, so the penalty stays continuous
+  near.fill(-1); nearD.fill(Infinity); hS.fill(0);
+  for (let q = 0; q < pairs.length; q += 3) {
+    const i = pairs[q], j = pairs[q + 1], d = pairs[q + 2];
+    if (d >= target || d < 0.5) continue;
+    const r = sepWeight(arcDist(s[i], s[j], L)) * levelFactor(Math.abs(z[i] - z[j])) * (target - d);
+    if (r <= 0) continue;
+    if (r > hS[i]) { hS[i] = r; nearD[i] = d; near[i] = j; }
+    if (r > hS[j]) { hS[j] = r; nearD[j] = d; near[j] = i; }
+  }
+  let E = 0;
+  for (let i = 0; i < M; i++) {
+    const j = near[i]; if (j < 0 || nearD[i] >= target) continue;
+    const r = sepWeight(arcDist(s[i], s[j], L)) * levelFactor(Math.abs(z[i] - z[j])) * (target - nearD[i]); E += PEN * r * r;
+  }
+  for (let j = 0; j < M; j++) { const ak = Math.abs(kap[j]); if (ak > 1e-9 && 1 / ak < Rm) { const r = Rm - 1 / ak; E += PEN * r * r; } }
+  for (let i = 0; i < P.length; i++) E += ALPHA * ((P[i].x - A[i].x) ** 2 + (P[i].y - A[i].y) ** 2);
+  return E;
+}
+function step() {
+  const E0 = energyAt();
+  const hw = halfEff(), target = 2 * hw + rules.gap + 0.05, Rm = rMin() + 0.05;
+  const { M, S, D1, D2, kap, s, z, gS, g1, g2 } = buf, L = s[M];
+  gS.fill(0); g1.fill(0); g2.fill(0); hS.fill(0); cb.fill(0);
+  let viol = 0;
+  for (let i = 0; i < M; i++) {
+    const j = near[i], d = nearD[i];
+    if (j < 0 || d >= target) continue;
+    const w = sepWeight(arcDist(s[i], s[j], L)) * levelFactor(Math.abs(z[i] - z[j])); if (w <= 0) continue;
+    viol++;
+    const r = w * (target - d), dd = Math.max(d, 1e-6);
+    const ux = (S[2 * i] - S[2 * j]) / dd, uy = (S[2 * i + 1] - S[2 * j + 1]) / dd;
+    // E = r^2, dr/dS_i = -w u, dr/dS_j = +w u
+    gS[2 * i] -= 2 * PEN * r * w * ux; gS[2 * i + 1] -= 2 * PEN * r * w * uy;
+    gS[2 * j] += 2 * PEN * r * w * ux; gS[2 * j + 1] += 2 * PEN * r * w * uy;
+    hS[i] += 2 * PEN * w * w; hS[j] += 2 * PEN * w * w;
+  }
+  for (let j = 0; j < M; j++) {
+    const k = kap[j], ak = Math.abs(k);
+    if (ak < 1e-9 || 1 / ak >= Rm) continue;
+    const x1 = D1[2 * j], y1 = D1[2 * j + 1], x2 = D2[2 * j], y2 = D2[2 * j + 1];
+    const sp2 = x1 * x1 + y1 * y1; if (sp2 < 1e-12) continue;
+    viol++;
+    const r = Rm - 1 / ak, drdk = Math.sign(k) / (k * k);
+    const sp = Math.sqrt(sp2), sp3 = sp2 * sp, sp5 = sp3 * sp2, cr = x1 * y2 - y1 * x2;
+    const a1x = drdk * (y2 / sp3 - 3 * cr * x1 / sp5), a1y = drdk * (-x2 / sp3 - 3 * cr * y1 / sp5);
+    const a2x = drdk * (-y1 / sp3), a2y = drdk * (x1 / sp3);
+    g1[2 * j] += 2 * PEN * r * a1x; g1[2 * j + 1] += 2 * PEN * r * a1y; g2[2 * j] += 2 * PEN * r * a2x; g2[2 * j + 1] += 2 * PEN * r * a2y;
+    cb[4 * j] = a1x; cb[4 * j + 1] = a1y; cb[4 * j + 2] = a2x; cb[4 * j + 3] = a2y;
+  }
+  const n = P.length, gP = new Float64Array(2 * n), H = new Float64Array(n);
+  for (let i = 0; i < n; i++) for (let k = 0; k < K; k++) {
+    const jj = i * K + k, j = 2 * jj;
+    const bent = cb[4 * jj] || cb[4 * jj + 1] || cb[4 * jj + 2] || cb[4 * jj + 3];
+    if (!hS[jj] && !bent) continue;
+    for (let m = 0; m < 4; m++) {
+      const c = (i - 1 + m + n) % n, idx = 2 * c, b = B[k][m], db = DB[k][m], ddb = DDB[k][m];
+      gP[idx] += b * gS[j] + db * g1[j] + ddb * g2[j];
+      gP[idx + 1] += b * gS[j + 1] + db * g1[j + 1] + ddb * g2[j + 1];
+      H[c] += b * b * hS[jj];
+      if (bent) { const ex = db * cb[4 * jj] + ddb * cb[4 * jj + 2], ey = db * cb[4 * jj + 1] + ddb * cb[4 * jj + 3]; H[c] += 2 * PEN * (ex * ex + ey * ey); }
+    }
+  }
+  // damped Gauss-Newton direction per point, then backtrack until the penalty actually drops
+  const dir = new Float64Array(2 * n);
+  for (let i = 0; i < n; i++) {
+    if (PIN[i] || (drag && drag.type === 'point' && drag.idx === i)) continue;
+    const h = H[i] + 2 * ALPHA + DAMP;
+    let dx = -(gP[2 * i] + 2 * ALPHA * (P[i].x - A[i].x)) / h, dy = -(gP[2 * i + 1] + 2 * ALPHA * (P[i].y - A[i].y)) / h;
+    const m = Math.hypot(dx, dy); if (m > CAP) { dx *= CAP / m; dy *= CAP / m; }
+    dir[2 * i] = dx; dir[2 * i + 1] = dy;
+  }
+  const P0 = P.map(p => ({ x: p.x, y: p.y }));
+  let t = stepScale;
+  for (let tries = 0; tries < 8; tries++) {
+    for (let i = 0; i < n; i++) P[i] = { x: P0[i].x + t * dir[2 * i], y: P0[i].y + t * dir[2 * i + 1] };
+    const E1 = energyAt();
+    if (E1 < E0 - 1e-12) {
+      stepScale = Math.min(1, t * 1.5);
+      let maxd = 0; for (let i = 0; i < n; i++) maxd = Math.max(maxd, t * Math.hypot(dir[2 * i], dir[2 * i + 1]));
+      return { viol, maxd, E: E1 };
+    }
+    t *= 0.5;
+  }
+  P = P0; energyAt(); stepScale = Math.max(1e-3, t);
+  return { viol, maxd: 0, E: E0 };
+}
+
+function analyse() {
+  evaluate();
+  crossings = findCrossings();
+  computeHeights();
+  const hw = halfEff(), H = rules.bridgeH;
+  pairs = findPairs(2 * hw + rules.gap + 3);
+  const { M, S, kap, gap, bend, s, z, nx, ny } = buf;
+  gap.fill(0); bend.fill(0);
+  let minGap = Infinity, minR = Infinity;
+  const L0 = s[M];
+  for (let q = 0; q < pairs.length; q += 3) {
+    const i = pairs[q], j = pairs[q + 1], d = pairs[q + 2];
+    if (sepWeight(arcDist(s[i], s[j], L0)) < 0.5) continue;     // same bend, not another lane
+    const dz = Math.abs(z[i] - z[j]);
+    const g = d - 2 * hw;
+    if (dz >= SIDE_CLEAR) {                                      // different levels: only a problem if one sits on the other too low
+      if (dz < 0.95 * H) {
+        // do the two road strips actually overlap here? (distance from i's centre to j's centre line, less how far
+        // i's cross-section reaches towards it at this crossing angle)
+        const tx = ny[j], ty = -nx[j], rx = S[2 * i] - S[2 * j], ry = S[2 * i + 1] - S[2 * j + 1];
+        const along = Math.abs(tx * rx + ty * ry), perp = Math.abs(tx * ry - ty * rx);
+        const cosT = Math.abs(nx[i] * nx[j] + ny[i] * ny[j]);
+        if (along < 1 && perp < hw * (1 + cosT)) { gap[i] = 2; gap[j] = 2; }
+      }
+      continue;
+    }
+    minGap = Math.min(minGap, g);
+    const f = g < 0 ? 2 : g < rules.gap - 1e-3 ? 1 : 0;
+    if (f) { gap[i] = Math.max(gap[i], f); gap[j] = Math.max(gap[j], f); }
+  }
+  for (let j = 0; j < M; j++) {
+    const R = Math.abs(kap[j]) > 1e-9 ? 1 / Math.abs(kap[j]) : Infinity;
+    minR = Math.min(minR, R);
+    bend[j] = R < hw ? 2 : R < rMin() - 1e-3 ? 1 : 0;
+  }
+  // steepest climb anywhere across the road: height change over the inside-edge length
+  const { ef, steep, slope } = buf, lim = Math.atan(tanSlope()) * 180 / Math.PI + 1.5;
+  let maxSlope = 0;
+  for (let j = 0; j < M; j++) {
+    const jn = (j + 1) % M, de = (s[j + 1] - s[j]) * 0.5 * (ef[j] + ef[jn]);
+    const sl = Math.atan2(Math.abs(z[jn] - z[j]), Math.max(1e-6, de)) * 180 / Math.PI;
+    slope[j] = sl; steep[j] = sl > lim ? 1 : 0; maxSlope = Math.max(maxSlope, sl);
+  }
+  const runs = arr => { let c = 0; for (let j = 0; j < M; j++) if (arr[j] && !arr[(j - 1 + M) % M]) c++; return c; };
+  const g2 = new Uint8Array(M), g1 = new Uint8Array(M), b2 = new Uint8Array(M), b1 = new Uint8Array(M);
+  for (let j = 0; j < M; j++) { g2[j] = gap[j] === 2; g1[j] = gap[j] >= 1; b2[j] = bend[j] === 2; b1[j] = bend[j] >= 1; }
+  const L = s[M], N = Math.max(1, Math.round(L / rules.seg));
+  const low = bridges.filter(b => b.clear < 0.95 * H).length;
+  const minClear = bridges.length ? Math.min(...bridges.map(b => b.clear)) : Infinity;
+  let maxZ = 0, minZ = 0; for (let j = 0; j < M; j++) { maxZ = Math.max(maxZ, z[j]); minZ = Math.min(minZ, z[j]); }
+  stats = { L, minGap, minR, overlaps: runs(g2), close: runs(g1), folds: runs(b2), tight: runs(b1), N, scale: N * rules.seg / L, low, minClear, maxZ, minZ,
+            steep: runs(steep), maxSlope };
+}
+
+// ------------------------------------------------------------------ drawing a new loop
+function buildFromStroke(pts) {
+  const m = pts.length; const cum = [0];
+  for (let i = 0; i < m; i++) { const a = pts[i], b = pts[(i + 1) % m]; cum.push(cum[i] + Math.hypot(b.x - a.x, b.y - a.y)); }
+  const L = cum[m];
+  const n = Math.max(6, Math.min(400, Math.round(L / rules.spacing)));
+  const Q = []; let seg = 0;
+  for (let k = 0; k < n; k++) {
+    const t = k * L / n;
+    while (cum[seg + 1] < t) seg++;
+    const a = pts[seg], b = pts[(seg + 1) % m], f = (t - cum[seg]) / Math.max(cum[seg + 1] - cum[seg], 1e-9);
+    Q.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f });
+  }
+  // move control points until the curve runs through the drawn points
+  let C = Q.map(p => ({ ...p }));
+  for (let it = 0; it < 40; it++) {
+    C = C.map((p, i) => {
+      const a = C[(i - 1 + n) % n], c = C[(i + 1) % n];
+      return { x: p.x + Q[i].x - (a.x + 4 * p.x + c.x) / 6, y: p.y + Q[i].y - (a.y + 4 * p.y + c.y) / 6 };
+    });
+  }
+  P = C; A = C.map(p => ({ ...p })); PIN = C.map(() => false); U = C.map(() => 0); flips = []; clearSel();
+}
+
+// ------------------------------------------------------------------ elevation editing
+function clearSel() { sel = new Set(); selAnchor = -1; syncSel(); }
+function nodeSig() { evaluate(); edgeLengths(); const { M, sig } = buf; return P.map((_, i) => sig[(i * K) % M]); }
+function loopRun(a, b) {                 // control point indices from a to b along the shorter way round
+  const n = P.length, fwd = (b - a + n) % n, back = (a - b + n) % n, out = [];
+  if (fwd <= back) for (let k = 0; k <= fwd; k++) out.push((a + k) % n);
+  else for (let k = 0; k <= back; k++) out.push((a - k + n) % n);
+  return out;
+}
+function selRun() {                      // the selection as one run along the loop: the largest unselected gap is left out
+  const n = P.length, idx = [...sel].sort((a, b) => a - b);
+  if (idx.length < 2) return idx;
+  let gapAt = 0, gapLen = -1;
+  for (let k = 0; k < idx.length; k++) { const g = (idx[(k + 1) % idx.length] - idx[k] + n) % n; if (g > gapLen) { gapLen = g; gapAt = k; } }
+  const start = idx[(gapAt + 1) % idx.length], end = idx[gapAt], out = [];
+  for (let i = start; ; i = (i + 1) % n) { out.push(i); if (i === end) break; }
+  return out;
+}
+// Give the points in `target` (index -> height) their new heights, starting from `base` (heights before the edit, so a
+// drag never piles up). With "ease neighbours" on, the other points within reach follow a cosine ramp at the max slope
+// (measured along the inside edge like the bridge ramps). A raise is merged with max() and runs down to the lowest
+// point in its reach (a lowering: min() and the highest), so repeated edits never stack their slopes.
+function setHeights(target, base) {
+  const n = P.length, out = base.slice();
+  for (const [i, h] of target) out[i] = h;
+  if (rules.ease && target.size && target.size < n) {
+    const ns = nodeSig(), Ls = buf.sig[buf.M], dist = (i, k) => { const dd = Math.abs(ns[i] - ns[k]); return Math.min(dd, Ls - dd); };
+    const ramps = [];
+    for (const [k, t] of target) {
+      const up = t > base[k] + 1e-9; if (!up && t > base[k] - 1e-9) continue;
+      let ext = base[k], R = 1.15 * rampFor(t - ext);
+      for (let it = 0; it < 6; it++) {
+        let m = base[k];
+        for (let i = 0; i < n; i++) if (!target.has(i) && dist(i, k) < R) m = up ? Math.min(m, base[i]) : Math.max(m, base[i]);
+        if (up ? m >= ext - 1e-9 : m <= ext + 1e-9) break;
+        ext = m; R = 1.15 * rampFor(t - ext);
+      }
+      ramps.push({ k, t, ext, R, up });
+    }
+    for (let i = 0; i < n; i++) {
+      if (target.has(i)) continue;
+      let hi = -Infinity, lo = Infinity;
+      for (const r of ramps) {
+        const d = dist(i, r.k); if (d >= r.R) continue;
+        const c = r.ext + (r.t - r.ext) * (1 - rampFrac(d, r.R));
+        if (r.up) hi = Math.max(hi, c); else lo = Math.min(lo, c);
+      }
+      let v = base[i];
+      if (hi > -Infinity) v = Math.max(v, hi);
+      if (lo < Infinity) v = Math.min(v, lo);
+      out[i] = v;
+    }
+  }
+  U = out.map(v => Math.round(v * 1000) / 1000);
+  wake(); syncSel();
+}
+function heightsFor(fn) { const m = new Map(); for (const i of sel) m.set(i, fn(i)); return m; }
+function setSelHeight(h) { if (!sel.size) return; pushUndo(); setHeights(heightsFor(() => h), U.slice()); }
+function nudgeSel(d) { if (!sel.size) return; pushUndo(); setHeights(heightsFor(i => U[i] + d), U.slice()); }
+function levelSel() { if (!sel.size) return; let t = 0; for (const i of sel) t += U[i]; setSelHeight(Math.round(t / sel.size * 100) / 100); }
+function rampSel() {
+  const run = selRun();
+  if (run.length < 3) { toast('Select at least 3 points along the road (Shift+click the far end)'); return; }
+  const ns = nodeSig(), Ls = buf.sig[buf.M], a = run[0], b = run[run.length - 1];
+  const len = ((ns[b] - ns[a]) % Ls + Ls) % Ls || 1, ha = U[a], hb = U[b], m = new Map();
+  for (let k = 1; k < run.length - 1; k++) { const t = (((ns[run[k]] - ns[a]) % Ls) + Ls) % Ls / len; m.set(run[k], ha + (hb - ha) * easeC(t)); }
+  pushUndo();
+  const e = rules.ease; rules.ease = false; setHeights(m, U.slice()); rules.ease = e;
+  const need = rampFor(hb - ha);
+  toast(len >= need ? `Ramp ${fmt(ha, 1)} → ${fmt(hb, 1)} BU over ${fmt(len, 0)} BU of road` :
+    `Ramp ${fmt(ha, 1)} → ${fmt(hb, 1)} is steeper than ${rules.rampSlope}°: it needs about ${fmt(need, 0)} BU, has ${fmt(len, 0)}`);
+}
+function syncSel() {
+  const el = $('nHeight'), cnt = $('selCount');
+  if (!el || !cnt) return;
+  for (const i of [...sel]) if (i >= P.length) sel.delete(i);
+  cnt.textContent = sel.size ? `${sel.size} point${sel.size === 1 ? '' : 's'}` : 'none selected';
+  if (document.activeElement !== el) {
+    const hs = [...sel].map(i => U[i] || 0);
+    el.value = hs.length && hs.every(h => Math.abs(h - hs[0]) < 1e-6) ? hs[0] : '';
+    el.placeholder = hs.length ? 'mixed' : '–';
+  }
+  needsRender = true;
+}
+function clickSelect(i, e) {
+  if (e.shiftKey && selAnchor >= 0 && selAnchor < P.length) for (const k of loopRun(selAnchor, i)) sel.add(k);
+  else if (e.ctrlKey || e.metaKey) { if (sel.has(i)) sel.delete(i); else sel.add(i); }
+  else sel = new Set([i]);
+  selAnchor = i; syncSel();
+}
+function loadDemo() {
+  // a zig-zag whose lanes are only 10 apart, with tight U-turns: the solver has to push it out
+  const poly = [[0, 0], [110, 0], [110, 10], [12, 10], [12, 20], [110, 20], [110, 30], [12, 30], [12, 40], [110, 40], [110, 50], [-10, 50], [-10, 0]];
+  const pts = []; for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.ceil(L / 1);
+    for (let k = 0; k < n; k++) pts.push({ x: a[0] + (b[0] - a[0]) * k / n - 50, y: a[1] + (b[1] - a[1]) * k / n - 25 });
+  }
+  pushUndo(); buildFromStroke(pts); mode = 'edit'; syncMode(); fitView(); wake();
+  toast('Demo: lanes 10 apart with tight U-turns – watch them get pushed out');
+}
+
+// ------------------------------------------------------------------ view helpers
+const w2s = (x, y) => [(x - view.cx) * view.zoom + cv.clientWidth / 2, cv.clientHeight / 2 - (y - view.cy) * view.zoom];
+const s2w = (sx, sy) => [(sx - cv.clientWidth / 2) / view.zoom + view.cx, view.cy - (sy - cv.clientHeight / 2) / view.zoom];
+function fitView() {
+  let pts = P.length ? P : [];
+  if (!pts.length && ref.img) pts = [{ x: ref.x - ref.width / 2, y: ref.y }, { x: ref.x + ref.width / 2, y: ref.y }];
+  if (!pts.length) { view.cx = 0; view.cy = 0; view.zoom = 4; wake(); return; }
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of pts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); }
+  const pad = 2 * halfEff() + 10;
+  view.cx = (x0 + x1) / 2; view.cy = (y0 + y1) / 2;
+  view.zoom = Math.max(0.2, Math.min(60, Math.min(cv.clientWidth / (x1 - x0 + 2 * pad), cv.clientHeight / (y1 - y0 + 2 * pad))));
+  wake();
+}
+function hit(sx, sy) {
+  let best = -1, bd = 9;
+  for (let i = 0; i < P.length; i++) { const [x, y] = w2s(P[i].x, P[i].y); const d = Math.hypot(x - sx, y - sy); if (d < bd) { bd = d; best = i; } }
+  return best;
+}
+
+// ------------------------------------------------------------------ render
+function readColors() {
+  const cs = getComputedStyle(document.documentElement);
+  for (const k of ['canvas', 'grid', 'grid-major', 'road', 'centre', 'ctrl', 'ctrl-stroke', 'accent', 'ok', 'warn', 'bad', 'curb-red', 'curb-white', 'muted', 'ink'])
+    colors[k] = cs.getPropertyValue('--' + k).trim();
+  needsRender = true;
+}
+function alpha(hex, a) {
+  const h = hex.replace('#', ''); const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+function drawBox() {
+  if (!drag || drag.type !== 'box') return;
+  const x = Math.min(drag.sx, drag.ex), y = Math.min(drag.sy, drag.ey), w = Math.abs(drag.ex - drag.sx), h = Math.abs(drag.ey - drag.sy);
+  ctx.fillStyle = alpha(colors.accent, 0.12); ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = colors.accent; ctx.lineWidth = 1; ctx.setLineDash([4, 3]); ctx.strokeRect(x + .5, y + .5, w, h); ctx.setLineDash([]);
+}
+function render() {
+  const w = cv.clientWidth, h = cv.clientHeight;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (cam.on) { render3d(w, h); drawBox(); return; }
+  ctx.fillStyle = colors.canvas; ctx.fillRect(0, 0, w, h);
+  drawGrid(w, h);
+  if (ref.img) {
+    const ih = ref.width * ref.img.naturalHeight / ref.img.naturalWidth;
+    const [sx, sy] = w2s(ref.x - ref.width / 2, ref.y + ih / 2);
+    ctx.globalAlpha = ref.opacity; ctx.drawImage(ref.img, sx, sy, ref.width * view.zoom, ih * view.zoom); ctx.globalAlpha = 1;
+  }
+  if (P.length >= 4 && buf.M === P.length * K) drawTrack();
+  if (stroke && stroke.length > 1) {
+    ctx.strokeStyle = colors.accent; ctx.lineWidth = Math.max(2, rules.width * view.zoom * 0.25); ctx.lineJoin = ctx.lineCap = 'round';
+    ctx.globalAlpha = 0.5; ctx.beginPath();
+    stroke.forEach((p, i) => { const [x, y] = w2s(p.x, p.y); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke(); ctx.globalAlpha = 1;
+    const [x0, y0] = w2s(stroke[0].x, stroke[0].y); ctx.fillStyle = colors.accent; ctx.beginPath(); ctx.arc(x0, y0, 5, 0, 7); ctx.fill();
+  }
+  if (P.length < 4 && !stroke) {
+    ctx.fillStyle = colors.muted; ctx.textAlign = 'center'; ctx.font = '600 15px system-ui, sans-serif';
+    ctx.fillText('Drag to draw a closed loop', w / 2, h / 2 - 6);
+    ctx.font = '13px system-ui, sans-serif'; ctx.fillText('or press Demo to watch the solver push lanes apart', w / 2, h / 2 + 16);
+    ctx.textAlign = 'left';
+  }
+  drawScale(w, h);
+  drawBox();
+}
+function drawGrid(w, h) {
+  const z = view.zoom, steps = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
+  const minor = steps.find(s => s * z >= 14) || 1000, major = minor * 5;
+  const [x0, y1] = s2w(0, 0), [x1, y0] = s2w(w, h);
+  for (const [stepv, color] of [[minor, colors.grid], [major, colors['grid-major']]]) {
+    ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = Math.ceil(x0 / stepv) * stepv; x <= x1; x += stepv) { const [sx] = w2s(x, 0); ctx.moveTo(Math.round(sx) + .5, 0); ctx.lineTo(Math.round(sx) + .5, h); }
+    for (let y = Math.ceil(y0 / stepv) * stepv; y <= y1; y += stepv) { const [, sy] = w2s(0, y); ctx.moveTo(0, Math.round(sy) + .5); ctx.lineTo(w, Math.round(sy) + .5); }
+    ctx.stroke();
+  }
+}
+function drawScale(w, h) {
+  const z = view.zoom, nice = [1, 2, 5, 10, 20, 50, 100, 200, 500].find(v => v * z >= 60) || 500;
+  const x = w - 14 - nice * z - 48, y = 56;
+  ctx.strokeStyle = colors.muted; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + nice * z, y); ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 4); ctx.moveTo(x + nice * z, y - 4); ctx.lineTo(x + nice * z, y + 4); ctx.stroke();
+  ctx.fillStyle = colors.muted; ctx.font = '12px system-ui, sans-serif'; ctx.fillText(`${nice} BU`, x + nice * z + 8, y + 4);
+}
+function edgeLine(off) {
+  const { M, S, nx, ny } = buf, pts = new Array(M);
+  for (let j = 0; j < M; j++) pts[j] = w2s(S[2 * j] + nx[j] * off, S[2 * j + 1] + ny[j] * off);
+  return pts;
+}
+function strokeLoop(pts, width, color, dash) {
+  ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []); ctx.lineJoin = 'round';
+  ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+}
+function mix(hexA, hexB, t) {
+  const p = h => { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+  const a = p(hexA), b = p(hexB);
+  return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(',')})`;
+}
+function drawTrack() {
+  const { M, S, gap, bend, z, steep } = buf, zm = view.zoom, hw = rules.width / 2, H = rules.bridgeH;
+  const L = edgeLine(hw), R = edgeLine(-hw);
+  const C = []; for (let j = 0; j < M; j++) C.push(w2s(S[2 * j], S[2 * j + 1]));
+  const curbW = Math.max(1, 0.26 * zm), ww = Math.max(1.5, 0.58 * zm);
+  const WL = rules.walls ? edgeLine(hw + 0.32) : null, WR = rules.walls ? edgeLine(-hw - 0.32) : null;
+  const qz = j => 0.5 * (z[j] + z[(j + 1) % M]);
+  const quad = (p, j, ox = 0, oy = 0) => { const k = (j + 1) % M; p.moveTo(L[j][0] + ox, L[j][1] + oy); p.lineTo(L[k][0] + ox, L[k][1] + oy); p.lineTo(R[k][0] + ox, R[k][1] + oy); p.lineTo(R[j][0] + ox, R[j][1] + oy); p.closePath(); };
+  const seg = (p, E, j) => { const k = (j + 1) % M; p.moveTo(E[j][0], E[j][1]); p.lineTo(E[k][0], E[k][1]); };
+  // one height band: road, warning tints, red/white curbs (one stripe per sample, ~0.75 BU), walls, centre dashes
+  function layer(idx, shade) {
+    const road = new Path2D(), warn = new Path2D(), bad = new Path2D(), red = new Path2D(), white = new Path2D(), wred = new Path2D(), wwhite = new Path2D(), cl = new Path2D();
+    for (const j of idx) {
+      quad(road, j);
+      if (gap[j] === 2 || bend[j] === 2) quad(bad, j); else if (gap[j] === 1 || bend[j] === 1 || steep[j]) quad(warn, j);
+      const st = j % 2 ? red : white; seg(st, L, j); seg(st, R, j);
+      if (WL) { const ws = j % 2 ? wred : wwhite; seg(ws, WL, j); seg(ws, WR, j); }
+      if (j % 2 === 0) seg(cl, C, j);
+    }
+    ctx.fillStyle = shade; ctx.fill(road);
+    ctx.fillStyle = alpha(colors.warn, 0.55); ctx.fill(warn);
+    ctx.fillStyle = alpha(colors.bad, 0.75); ctx.fill(bad);
+    ctx.lineCap = 'butt'; ctx.lineWidth = curbW;
+    ctx.strokeStyle = colors['curb-white']; ctx.stroke(white); ctx.strokeStyle = colors['curb-red']; ctx.stroke(red);
+    if (WL) { ctx.lineWidth = ww; ctx.strokeStyle = colors['curb-white']; ctx.stroke(wwhite); ctx.strokeStyle = colors['curb-red']; ctx.stroke(wred); }
+    ctx.lineWidth = 1; ctx.strokeStyle = alpha(colors.centre, 0.9); ctx.stroke(cl);
+  }
+  // height bands, lowest first: below ground darker, above ground lighter, raised road casts a shadow
+  const ground = [], high = [], low = [];
+  for (let j = 0; j < M; j++) { const v = qz(j); (v >= 0.05 ? high : v <= -0.05 ? low : ground).push(j); }
+  const bands = 12;
+  if (low.length) {
+    const minz = Math.min(...low.map(qz)), bucket = Array.from({ length: bands }, () => []);
+    for (const j of low) bucket[Math.min(bands - 1, Math.floor(qz(j) / minz * bands))].push(j);
+    for (let b = bands - 1; b >= 0; b--) if (bucket[b].length) layer(bucket[b], mix(colors.road, '#000000', 0.1 + 0.3 * (b + 1) / bands));
+  }
+  layer(ground, colors.road);
+  if (high.length) {
+    const maxz = Math.max(...high.map(qz)), sh = new Path2D(), off = Math.min(8, 0.5 * zm);
+    for (const j of high) { const f = qz(j) / Math.max(H, maxz, 1e-6); quad(sh, j, off * f, off * f); }
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fill(sh);
+    const bucket = Array.from({ length: bands }, () => []);
+    for (const j of high) bucket[Math.min(bands - 1, Math.floor(qz(j) / maxz * bands))].push(j);
+    bucket.forEach((idx, b) => { if (idx.length) layer(idx, mix(colors.road, '#ffffff', 0.08 + 0.22 * (b + 1) / bands)); });   // higher = lighter
+  }
+  // start / finish + direction
+  const sq = 6, [ax, ay] = L[0], [bx, by] = R[0], len = Math.hypot(bx - ax, by - ay), cells = Math.max(2, Math.round(len / sq));
+  const ux = (bx - ax) / cells, uy = (by - ay) / cells, tx = -uy, ty = ux, tl = Math.hypot(tx, ty) || 1;
+  for (let c = 0; c < cells; c++) for (let r = 0; r < 2; r++) {
+    ctx.fillStyle = (c + r) % 2 ? '#111' : '#fff';
+    const ox = ax + ux * c + tx / tl * sq * (r - 1), oy = ay + uy * c + ty / tl * sq * (r - 1);
+    ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(ox + ux, oy + uy); ctx.lineTo(ox + ux + tx / tl * sq, oy + uy + ty / tl * sq); ctx.lineTo(ox + tx / tl * sq, oy + ty / tl * sq); ctx.fill();
+  }
+  const a0 = C[0], a1 = C[Math.min(M - 1, 2 * K)];
+  const ang = Math.atan2(a1[1] - a0[1], a1[0] - a0[0]), mx = (a0[0] + a1[0]) / 2, my = (a0[1] + a1[1]) / 2;
+  ctx.fillStyle = colors.centre; ctx.beginPath();
+  ctx.moveTo(mx + 9 * Math.cos(ang), my + 9 * Math.sin(ang));
+  ctx.lineTo(mx + 6 * Math.cos(ang + 2.4), my + 6 * Math.sin(ang + 2.4)); ctx.lineTo(mx + 6 * Math.cos(ang - 2.4), my + 6 * Math.sin(ang - 2.4)); ctx.fill();
+  // close pairs
+  const target = 2 * halfEff() + rules.gap;
+  ctx.strokeStyle = alpha(colors.bad, 0.8); ctx.lineWidth = 1; ctx.beginPath();
+  let drawn = 0;
+  const Ls = buf.s[M];
+  for (let q = 0; q < pairs.length && drawn < 400; q += 3) {
+    if (pairs[q + 2] >= target || sepWeight(arcDist(buf.s[pairs[q]], buf.s[pairs[q + 1]], Ls)) < 0.5) continue;
+    if (Math.abs(z[pairs[q]] - z[pairs[q + 1]]) >= SIDE_CLEAR) continue;
+    if (pairs[q] % 3) continue;
+    const [x1, y1] = w2s(S[2 * pairs[q]], S[2 * pairs[q] + 1]), [x2, y2] = w2s(S[2 * pairs[q + 1]], S[2 * pairs[q + 1] + 1]);
+    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); drawn++;
+  }
+  ctx.stroke();
+  // bridges: badge with an arrow along the road that goes over (click to flip)
+  for (const b of bridges) {
+    const [x, y] = w2s(b.x, b.y), ok = b.clear >= 0.95 * H, r = 11;
+    ctx.fillStyle = ok ? colors.accent : colors.bad; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+    ctx.strokeStyle = colors.canvas; ctx.lineWidth = 2; ctx.stroke();
+    const dx = b.dir.x, dy = -b.dir.y;
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.beginPath();
+    ctx.moveTo(x - dx * 6, y - dy * 6); ctx.lineTo(x + dx * 6, y + dy * 6);
+    ctx.moveTo(x + dx * 6, y + dy * 6); ctx.lineTo(x + dx * 2 - dy * 4, y + dy * 2 + dx * 4);
+    ctx.moveTo(x + dx * 6, y + dy * 6); ctx.lineTo(x + dx * 2 + dy * 4, y + dy * 2 - dx * 4);
+    ctx.stroke();
+    ctx.font = '600 11px system-ui, sans-serif'; ctx.fillStyle = ok ? colors.accent : colors.bad;
+    ctx.fillText(ok ? `\u25B2 ${b.clear.toFixed(1)}` : `too low ${b.clear.toFixed(1)}${b.capped ? ' · max here' : ''}`, x + r + 4, y + 4);
+  }
+  // control polygon, pushes, points
+  const n = P.length;
+  ctx.strokeStyle = alpha(colors.muted, 0.45); ctx.lineWidth = 1; ctx.beginPath();
+  for (let i = 0; i <= n; i++) { const [x, y] = w2s(P[i % n].x, P[i % n].y); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke();
+  ctx.strokeStyle = colors.accent; ctx.lineWidth = 1.5; ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    if (Math.hypot(P[i].x - A[i].x, P[i].y - A[i].y) < 0.05) continue;
+    const [x1, y1] = w2s(A[i].x, A[i].y), [x2, y2] = w2s(P[i].x, P[i].y); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+    ctx.moveTo(x1 + 3, y1); ctx.arc(x1, y1, 3, 0, 7);
+  }
+  ctx.stroke();
+  for (let i = 0; i < n; i++) { const [x, y] = w2s(P[i].x, P[i].y); drawNode(x, y, i); }
+  drawHeightLabels((i) => w2s(P[i].x, P[i].y));
+}
+function drawNode(x, y, i) {
+  const r = i === hover ? 6 : 4.5, on = sel.has(i);
+  ctx.lineWidth = 1.5; ctx.strokeStyle = on ? colors.accent : colors['ctrl-stroke'];
+  if (on) { ctx.fillStyle = alpha(colors.accent, 0.3); ctx.beginPath(); ctx.arc(x, y, r + 4, 0, 7); ctx.fill(); }
+  if (PIN[i]) { ctx.fillStyle = colors.accent; ctx.fillRect(x - r, y - r, 2 * r, 2 * r); ctx.strokeRect(x - r, y - r, 2 * r, 2 * r); }
+  else { ctx.fillStyle = on ? colors.accent : colors.ctrl; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.stroke(); }
+}
+// heights you set: shown on selected and hovered points
+function drawHeightLabels(pos) {
+  if (!sel.size && hover < 0) return;
+  ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'left';
+  const show = new Set(sel); if (hover >= 0 && hover < P.length) show.add(hover);
+  if (show.size > 60) return;
+  for (const i of show) {
+    const [x, y] = pos(i), t = `${U[i] >= 0 ? '↑' : '↓'}${Math.abs(U[i]).toFixed(1)}`;
+    const w = ctx.measureText(t).width + 8;
+    ctx.fillStyle = alpha(colors.canvas, 0.85); ctx.fillRect(x + 8, y - 20, w, 15);
+    ctx.fillStyle = colors.ink; ctx.fillText(t, x + 12, y - 9);
+  }
+}
+
+// ------------------------------------------------------------------ 3D view: WebGL road with a depth buffer, points and badges drawn on top
+const glc = $('gl');
+let gl = null, glProg = null, glBuf = null, glLoc = null, camFitted = false, node3 = [];
+const MVP = new Float32Array(16);
+function initGL() {
+  if (gl !== null) return !!glProg;
+  try { gl = glc.getContext('webgl', { antialias: true }) || false; } catch (e) { gl = false; }
+  if (!gl) return false;
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+  glProg = gl.createProgram();
+  gl.attachShader(glProg, sh(gl.VERTEX_SHADER, 'attribute vec3 p; attribute vec4 c; uniform mat4 m; varying vec4 v; void main() { gl_Position = m * vec4(p, 1.0); v = c; }'));
+  gl.attachShader(glProg, sh(gl.FRAGMENT_SHADER, 'precision mediump float; varying vec4 v; void main() { gl_FragColor = v; }'));
+  gl.linkProgram(glProg);
+  if (!gl.getProgramParameter(glProg, gl.LINK_STATUS)) { glProg = null; return false; }
+  glLoc = { p: gl.getAttribLocation(glProg, 'p'), c: gl.getAttribLocation(glProg, 'c'), m: gl.getUniformLocation(glProg, 'm') };
+  glBuf = gl.createBuffer();
+  return true;
+}
+// growable vertex list: x y z r g b a
+class VList {
+  constructor() { this.a = new Float32Array(1 << 15); this.n = 0; }
+  v(x, y, z, c, al) {
+    if (this.n + 7 > this.a.length) { const b = new Float32Array(this.a.length * 2); b.set(this.a); this.a = b; }
+    const a = this.a, k = this.n; a[k] = x; a[k + 1] = y; a[k + 2] = z; a[k + 3] = c[0]; a[k + 4] = c[1]; a[k + 5] = c[2]; a[k + 6] = al; this.n = k + 7;
+  }
+  quad(p0, p1, p2, p3, c, al = 1) { this.v(...p0, c, al); this.v(...p1, c, al); this.v(...p2, c, al); this.v(...p0, c, al); this.v(...p2, c, al); this.v(...p3, c, al); }
+  line(p0, p1, c, al = 1) { this.v(...p0, c, al); this.v(...p1, c, al); }
+}
+const vTri = new VList(), vLin = new VList(), vSh = new VList();
+const rgb = hex => { let h = (hex || '#888').replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); const n = parseInt(h, 16); return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; };
+const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const shade = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
+function camEye() { const cp = Math.cos(cam.pitch); return [cam.tx + cam.dist * cp * Math.cos(cam.yaw), cam.ty + cam.dist * cp * Math.sin(cam.yaw), cam.tz + cam.dist * Math.sin(cam.pitch)]; }
+function camMatrix(w, h) {
+  const e = camEye();
+  let f = [cam.tx - e[0], cam.ty - e[1], cam.tz - e[2]]; const fl = Math.hypot(...f) || 1; f = f.map(v => v / fl);
+  let r = [f[1], -f[0], 0]; const rl = Math.hypot(...r) || 1; r = r.map(v => v / rl);
+  const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const V = [r[0], u[0], -f[0], 0, r[1], u[1], -f[1], 0, r[2], u[2], -f[2], 0, -dot(r, e), -dot(u, e), dot(f, e), 1];
+  const near = Math.max(0.05, cam.dist * 0.004), far = cam.dist * 20 + 3000, q = 1 / Math.tan(25 * Math.PI / 180), a = w / Math.max(1, h);
+  const Pm = [q / a, 0, 0, 0, 0, q, 0, 0, 0, 0, (far + near) / (near - far), -1, 0, 0, 2 * far * near / (near - far), 0];
+  for (let c = 0; c < 4; c++) for (let ri = 0; ri < 4; ri++) { let s = 0; for (let k = 0; k < 4; k++) s += Pm[k * 4 + ri] * V[c * 4 + k]; MVP[c * 4 + ri] = s; }
+}
+function project(x, y, z, w, h) {
+  const m = MVP, cw = m[3] * x + m[7] * y + m[11] * z + m[15];
+  if (cw <= 1e-6) return null;
+  return [((m[0] * x + m[4] * y + m[8] * z + m[12]) / cw + 1) / 2 * w, (1 - (m[1] * x + m[5] * y + m[9] * z + m[13]) / cw) / 2 * h];
+}
+function fit3d() {
+  if (P.length < 4 || buf.M !== P.length * K) return;
+  const { M, S, z } = buf;
+  let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+  for (let j = 0; j < M; j++) { x0 = Math.min(x0, S[2 * j]); x1 = Math.max(x1, S[2 * j]); y0 = Math.min(y0, S[2 * j + 1]); y1 = Math.max(y1, S[2 * j + 1]); z0 = Math.min(z0, z[j]); z1 = Math.max(z1, z[j]); }
+  cam.tx = (x0 + x1) / 2; cam.ty = (y0 + y1) / 2; cam.tz = (z0 + z1) / 2;
+  cam.dist = Math.max(20, 0.5 * Math.hypot(x1 - x0 + 2 * halfEff(), y1 - y0 + 2 * halfEff(), z1 - z0) / Math.tan(25 * Math.PI / 180) * 0.95);
+  camFitted = true; needsRender = true; scheduleSave();
+}
+function drawGL(list, mode) {
+  if (!list.n) return;
+  gl.bindBuffer(gl.ARRAY_BUFFER, glBuf); gl.bufferData(gl.ARRAY_BUFFER, list.a.subarray(0, list.n), gl.STREAM_DRAW);
+  gl.enableVertexAttribArray(glLoc.p); gl.vertexAttribPointer(glLoc.p, 3, gl.FLOAT, false, 28, 0);
+  gl.enableVertexAttribArray(glLoc.c); gl.vertexAttribPointer(glLoc.c, 4, gl.FLOAT, false, 28, 12);
+  gl.drawArrays(mode, 0, list.n / 7);
+}
+function render3d(w, h) {
+  ctx.clearRect(0, 0, w, h);
+  if (!initGL()) {
+    ctx.fillStyle = colors.canvas; ctx.fillRect(0, 0, w, h); ctx.fillStyle = colors.muted; ctx.textAlign = 'center';
+    ctx.fillText('This browser has no WebGL, so there is no 3D view here', w / 2, h / 2); ctx.textAlign = 'left'; return;
+  }
+  const W = Math.round(w * dpr), Hp = Math.round(h * dpr);
+  if (glc.width !== W || glc.height !== Hp) { glc.width = W; glc.height = Hp; }
+  camMatrix(w, h);
+  gl.viewport(0, 0, W, Hp);
+  const bg = rgb(colors.canvas); gl.clearColor(bg[0], bg[1], bg[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+  gl.useProgram(glProg); gl.uniformMatrix4fv(glLoc.m, false, MVP);
+  vTri.n = vLin.n = vSh.n = 0;
+  const ok = P.length >= 4 && buf.M === P.length * K;
+  // ground grid around the track
+  let gx0 = cam.tx - 60, gx1 = cam.tx + 60, gy0 = cam.ty - 60, gy1 = cam.ty + 60;
+  if (ok) {
+    const { M, S } = buf; gx0 = gy0 = Infinity; gx1 = gy1 = -Infinity;
+    for (let j = 0; j < M; j++) { gx0 = Math.min(gx0, S[2 * j]); gx1 = Math.max(gx1, S[2 * j]); gy0 = Math.min(gy0, S[2 * j + 1]); gy1 = Math.max(gy1, S[2 * j + 1]); }
+    const pad = Math.max(20, 0.15 * Math.max(gx1 - gx0, gy1 - gy0)); gx0 -= pad; gx1 += pad; gy0 -= pad; gy1 += pad;
+  }
+  const step = [1, 2, 5, 10, 20, 50, 100, 200].find(s => s >= Math.max(gx1 - gx0, gy1 - gy0) / 40) || 200;
+  const cg = rgb(colors.grid), cgm = rgb(colors['grid-major']);
+  const gz = -0.05;      // just under the ground so road at height 0 covers it
+  for (let x = Math.ceil(gx0 / step) * step; x <= gx1; x += step) vLin.line([x, gy0, gz], [x, gy1, gz], Math.round(x / step) % 5 ? cg : cgm);
+  for (let y = Math.ceil(gy0 / step) * step; y <= gy1; y += step) vLin.line([gx0, y, gz], [gx1, y, gz], Math.round(y / step) % 5 ? cg : cgm);
+  if (ok) buildRoad3d();
+  drawGL(vTri, gl.TRIANGLES);
+  drawGL(vLin, gl.LINES);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+  drawGL(vSh, gl.TRIANGLES);
+  gl.depthMask(true); gl.disable(gl.BLEND);
+  if (ok) overlay3d(w, h);
+}
+function buildRoad3d() {
+  const { M, S, nx, ny, z, gap, bend, steep } = buf, hw = rules.width / 2;
+  let maxz = 0.05; for (let j = 0; j < M; j++) maxz = Math.max(maxz, z[j]);
+  const cRoad = rgb(colors.road), cRed = rgb(colors['curb-red']), cWhite = rgb(colors['curb-white']), cC = rgb(colors.centre);
+  const cWarn = mixc(cRoad, rgb(colors.warn), 0.6), cBad = mixc(cRoad, rgb(colors.bad), 0.75), white = [1, 1, 1], black = [0, 0, 0];
+  const Ld = [0.35, -0.45, 0.82], Ll = Math.hypot(...Ld);
+  const pt = (j, off, dz = 0) => [S[2 * j] + nx[j] * off, S[2 * j + 1] + ny[j] * off, z[j] + dz];
+  const lit = (p0, p1, p2, p3) => {
+    const a = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]], b = [p3[0] - p1[0], p3[1] - p1[1], p3[2] - p1[2]];
+    let n = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; const l = Math.hypot(...n) || 1;
+    if (n[2] < 0) n = n.map(v => -v);
+    return 0.6 + 0.4 * Math.max(0, (n[0] * Ld[0] + n[1] * Ld[1] + n[2] * Ld[2]) / (l * Ll));
+  };
+  for (let j = 0; j < M; j++) {
+    const k = (j + 1) % M, zq = 0.5 * (z[j] + z[k]);
+    const a = pt(j, hw), b = pt(k, hw), c = pt(k, -hw), d = pt(j, -hw), L = lit(a, b, c, d);
+    let col = gap[j] === 2 || bend[j] === 2 ? cBad : gap[j] === 1 || bend[j] === 1 || steep[j] ? cWarn :
+      zq >= 0.05 ? mixc(cRoad, white, 0.08 + 0.22 * zq / maxz) : zq <= -0.05 ? mixc(cRoad, black, 0.25) : cRoad;
+    vTri.quad(a, b, c, d, shade(col, L));
+    const cc = shade(j % 2 ? cRed : cWhite, L);
+    vTri.quad(pt(j, hw - 0.26, 0.012), pt(k, hw - 0.26, 0.012), pt(k, hw, 0.012), pt(j, hw, 0.012), cc);
+    vTri.quad(pt(j, -hw, 0.012), pt(k, -hw, 0.012), pt(k, -hw + 0.26, 0.012), pt(j, -hw + 0.26, 0.012), cc);
+    if (j % 2 === 0) vLin.line(pt(j, 0, 0.03), pt(k, 0, 0.03), cC);
+    if (rules.walls) {
+      const wc = Math.floor(j / 2) % 2 ? cRed : cWhite;
+      for (const sg of [1, -1]) {
+        const i0 = sg * (hw + 0.03), o0 = sg * (hw + 0.61);
+        vTri.quad(pt(j, i0, -0.24), pt(k, i0, -0.24), pt(k, i0, 0.64), pt(j, i0, 0.64), shade(wc, 0.72));
+        vTri.quad(pt(j, i0, 0.64), pt(k, i0, 0.64), pt(k, o0, 0.64), pt(j, o0, 0.64), shade(wc, 0.95));
+        vTri.quad(pt(j, o0, -0.24), pt(k, o0, -0.24), pt(k, o0, 0.64), pt(j, o0, 0.64), shade(wc, 0.62));
+      }
+    }
+    if (zq > 0.05) {
+      const g = p => [p[0], p[1], 0.004];
+      vSh.quad(g(a), g(b), g(c), g(d), black, Math.min(0.28, 0.08 + 0.05 * zq));
+    }
+  }
+  // start / finish: checkerboard across the road at the first sample
+  const tx = ny[0], ty = -nx[0], cells = 8, cw = rules.width / cells;
+  for (let c = 0; c < cells; c++) for (let r = 0; r < 2; r++) {
+    const o0 = -hw + c * cw, o1 = o0 + cw, t0 = (r - 1) * cw, t1 = t0 + cw;
+    const q = (off, t) => [S[0] + nx[0] * off + tx * t, S[1] + ny[0] * off + ty * t, z[0] + 0.02];
+    vTri.quad(q(o0, t0), q(o1, t0), q(o1, t1), q(o0, t1), (c + r) % 2 ? [0.07, 0.07, 0.07] : [0.97, 0.97, 0.97]);
+  }
+}
+function overlay3d(w, h) {
+  const n = P.length, H = rules.bridgeH;
+  node3 = new Array(n);
+  // stems from the ground to each point, then the points
+  ctx.lineWidth = 1; ctx.strokeStyle = alpha(colors.muted, 0.6); ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const top = project(P[i].x, P[i].y, zc[i] || 0, w, h); node3[i] = top;
+    if (!top || Math.abs(zc[i] || 0) < 0.05) continue;
+    const base = project(P[i].x, P[i].y, 0, w, h); if (!base) continue;
+    ctx.moveTo(base[0], base[1]); ctx.lineTo(top[0], top[1]);
+  }
+  ctx.stroke();
+  for (const b of bridges) {
+    const zo = (() => { const j = idxAt(b.so); return buf.z[j]; })();
+    const p = project(b.x, b.y, zo + 1.2, w, h); if (!p) continue;
+    const okb = b.clear >= 0.95 * H, r = 10; b.p3 = p;
+    ctx.fillStyle = okb ? colors.accent : colors.bad; ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 7); ctx.fill();
+    ctx.strokeStyle = colors.canvas; ctx.lineWidth = 2; ctx.stroke();
+    ctx.font = '600 11px system-ui, sans-serif'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText('▲', p[0], p[1] + 4); ctx.textAlign = 'left';
+    ctx.fillStyle = okb ? colors.accent : colors.bad;
+    ctx.fillText(okb ? `${b.clear.toFixed(1)}` : `too low ${b.clear.toFixed(1)}${b.capped ? ' · max here' : ''}`, p[0] + r + 4, p[1] + 4);
+  }
+  for (let i = 0; i < n; i++) if (node3[i]) drawNode(node3[i][0], node3[i][1], i);
+  drawHeightLabels(i => node3[i] || [-99, -99]);
+}
+function hit3(sx, sy) {
+  let best = -1, bd = 10;
+  for (let i = 0; i < node3.length; i++) { const p = node3[i]; if (!p) continue; const d = Math.hypot(p[0] - sx, p[1] - sy); if (d < bd) { bd = d; best = i; } }
+  return best;
+}
+function setView3d(on) {
+  if (on && P.length < 4) { toast('Draw a track first'); on = false; }
+  cam.on = on;
+  $('stage').classList.toggle('v3', on); $('b2d').classList.toggle('on', !on); $('b3d').classList.toggle('on', on);
+  if (on) { if (mode === 'draw') mode = 'edit'; if (!camFitted) { analyse(); fit3d(); } }
+  hover = -1; syncMode(); needsRender = true; scheduleSave();
+}
+
+// ------------------------------------------------------------------ status panel
+function fmt(v, d = 2) { return Number.isFinite(v) ? v.toFixed(d) : '–'; }
+function updatePanel() {
+  const pill = $('pill').querySelector('i'), pt = $('pillText'), px = $('pillExtra');
+  if (!stats || P.length < 4) {
+    pill.style.background = colors.muted; pt.textContent = mode === 'draw' ? 'Draw a loop' : '—'; px.textContent = '';
+    for (const id of ['sLen', 'sGap', 'sRad', 'sCross', 'sSlope', 'sSeg', 'sPts']) $(id).textContent = '–';
+    return;
+  }
+  const s = stats, bad = s.overlaps + s.folds + s.low, warn = s.close + s.tight + s.steep;
+  pill.style.background = bad ? colors.bad : warn ? colors.warn : colors.ok;
+  const worst = bridges.reduce((a, b) => !a || b.clear < a.clear ? b : a, null);
+  pt.textContent = s.low ? (worst && worst.capped
+      ? `Bridge too low: room for ${fmt(worst.room, 1)} BU – its passes are ${fmt(worst.gap, 0)} BU of road apart, ${rules.bridgeH} BU needs ${fmt(worst.need, 0)}`
+      : `Bridge too low: ${s.low} – no room to ramp (bigger loop, flip it, or more slope)`) :
+    bad ? `Clipping: ${s.overlaps} overlap${s.overlaps === 1 ? '' : 's'}, ${s.folds} fold${s.folds === 1 ? '' : 's'}` :
+    s.close + s.tight ? `Too tight: ${s.close} close lane${s.close === 1 ? '' : 's'}, ${s.tight} tight bend${s.tight === 1 ? '' : 's'}` :
+    s.steep ? `Too steep: ${s.steep} ramp${s.steep === 1 ? '' : 's'} up to ${fmt(s.maxSlope, 0)}° on the inside edge` : 'Clean – nothing clips';
+  const slEl = $('sSlope');
+  slEl.textContent = `${fmt(s.maxSlope, 1)}°`;
+  slEl.className = s.steep ? 'warn' : 'good';
+  px.textContent = (bridges.length ? ` · ${bridges.length} bridge${bridges.length === 1 ? '' : 's'}` : '') + (live && !idle ? ' · solving…' : '');
+  $('sLen').textContent = `${fmt(s.L, 1)} BU`;
+  const gEl = $('sGap');
+  gEl.textContent = Number.isFinite(s.minGap) ? `${fmt(s.minGap)} BU` : `> ${fmt(rules.gap + 3, 1)} BU`;
+  gEl.className = !Number.isFinite(s.minGap) || s.minGap >= rules.gap - 1e-3 ? 'good' : s.minGap >= 0 ? 'warn' : 'bad';
+  const rEl = $('sRad');
+  rEl.textContent = `${fmt(s.minR)} BU`;
+  rEl.className = s.minR >= rMin() - 1e-3 ? 'good' : s.minR >= halfEff() ? 'warn' : 'bad';
+  const sc = $('sCross');
+  sc.textContent = bridges.length ? `${bridges.length} · lowest ${fmt(s.minClear, 1)} BU` : '0';
+  sc.className = !bridges.length ? '' : s.low ? 'bad' : 'good';
+  $('sSeg').textContent = `${s.N} × ${rules.seg} (path ×${s.scale.toFixed(4)})`;
+  $('sPts').textContent = `${P.length}${PIN.some(Boolean) ? ` (${PIN.filter(Boolean).length} pinned)` : ''}`;
+  $('ruleNote').textContent = `Edges are ${rules.walls ? 'the back of the walls' : 'the road edges'}: half width ${halfEff().toFixed(2)}, so bends fold below radius ${halfEff().toFixed(2)}; the solver keeps them at ${rMin().toFixed(2)} or more. ` +
+    `Crossings become bridges: the later pass from the start line goes over by default, at ${rules.bridgeH} BU with ramps about ${rampLength().toFixed(0)} BU long each side, ` +
+    `measured along the inside edge, so a ramp on a bend stretches until no part of the road is steeper than ${rules.rampSlope}°.`;
+}
+
+// ------------------------------------------------------------------ main loop
+function wake() { idle = false; needsRender = true; stepScale = 1; scheduleSave(); }
+let lastPanel = 0, panelDirty = true;
+function frame(t) {
+  if (P.length >= 4) {
+    if (live && !idle) {
+      const t0 = performance.now(); let r;
+      do { r = step(); } while (performance.now() - t0 < 12 && r.maxd > 1e-4);
+      if (r.maxd <= 1e-4 && !drag) { idle = true; scheduleSave(); }
+      analyse(); needsRender = true;
+    } else if (needsRender) analyse();
+  } else stats = null;
+  if (needsRender) { render(); needsRender = false; panelDirty = true; }
+  if (panelDirty && (t - lastPanel > 120 || !live || idle)) { updatePanel(); lastPanel = t; panelDirty = false; }
+  requestAnimationFrame(frame);
+}
+
+// ------------------------------------------------------------------ undo / save
+function snapshot() { return { P: P.map(p => ({ ...p })), A: A.map(p => ({ ...p })), PIN: PIN.slice(), U: U.slice(), flips: flips.map(f => ({ ...f })) }; }
+function pushUndo() { undoStack.push(snapshot()); if (undoStack.length > 80) undoStack.shift(); }
+function doUndo() {
+  const s = undoStack.pop(); if (!s) { toast('Nothing to undo'); return; }
+  const sameLen = s.P.length === P.length;
+  P = s.P; A = s.A; PIN = s.PIN; U = s.U || P.map(() => 0); flips = s.flips || []; mode = P.length >= 4 ? 'edit' : 'draw';
+  if (!sameLen) clearSel(); else syncSel();
+  syncMode(); wake();
+}
+let saveTimer = 0;
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const c = { yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist, tx: cam.tx, ty: cam.ty, tz: cam.tz, on: cam.on, fitted: camFitted };
+    try { localStorage.setItem(STORE, JSON.stringify({ P, A, PIN, U, rules, view, cam: c, live, flips })); } catch (e) { /* storage unavailable */ }
+  }, 400);
+}
+function restore() {
+  try {
+    const d = JSON.parse(localStorage.getItem(STORE) || 'null');
+    if (!d) return false;
+    Object.assign(rules, d.rules || {}); Object.assign(view, d.view || {});
+    live = d.live !== false;
+    if (Array.isArray(d.P) && d.P.length >= 4) {
+      P = d.P; A = d.A; PIN = d.PIN || P.map(() => false); mode = 'edit';
+      U = Array.isArray(d.U) && d.U.length === P.length ? d.U.map(v => +v || 0) : P.map(() => 0);
+    }
+    if (Array.isArray(d.flips)) flips = d.flips;
+    if (d.cam) { for (const k of ['yaw', 'pitch', 'dist', 'tx', 'ty', 'tz']) if (Number.isFinite(d.cam[k])) cam[k] = d.cam[k]; camFitted = !!d.cam.fitted; cam.on = !!d.cam.on && P.length >= 4; }
+    return true;
+  } catch (e) { return false; }
+}
+
+// ------------------------------------------------------------------ input
+function syncMode() {
+  cv.classList.toggle('edit', mode === 'edit');
+  $('bDraw').classList.toggle('on', mode === 'draw');
+  $('hint').innerHTML = cam.on
+    ? 'Click a point to select it (<kbd>Shift</kbd>+click a run, <kbd>Ctrl</kbd>+click one more, <kbd>Shift</kbd>+drag a box) · drag a point up or down to set its height (<kbd>Ctrl</kbd> snaps to 0.5) · drag empty space to orbit · right-drag to pan · scroll to zoom · <kbd>F</kbd> fit · <kbd>3</kbd> back to 2D'
+    : mode === 'draw'
+    ? 'Drag to draw a closed loop (it closes itself) · scroll to zoom · middle-drag or <kbd>Space</kbd>-drag to pan'
+    : 'Drag points to edit · click to select (<kbd>Shift</kbd>+click a run, <kbd>Shift</kbd>+drag a box) · right-click to pin · click a bridge to flip it · double-click the road to add a point, a point to delete it · drag empty space to pan · scroll to zoom · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>F</kbd> fit · <kbd>3</kbd> 3D view';
+}
+function flipBridge(b) {
+  pushUndo();
+  if (b.flipped) flips = flips.filter(f => Math.hypot(f.x - b.x, f.y - b.y) >= 2 * halfEff());
+  else flips.push({ x: b.x, y: b.y });
+  wake(); toast('Bridge flipped');
+}
+function finishBox(e) {
+  const x0 = Math.min(drag.sx, drag.ex), x1 = Math.max(drag.sx, drag.ex), y0 = Math.min(drag.sy, drag.ey), y1 = Math.max(drag.sy, drag.ey);
+  if (!(e.ctrlKey || e.metaKey)) sel = new Set(sel);
+  let added = 0;
+  for (let i = 0; i < P.length; i++) {
+    const p = cam.on ? node3[i] : w2s(P[i].x, P[i].y);
+    if (p && p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1) { sel.add(i); added++; }
+  }
+  syncSel();
+  if (added) toast(`${sel.size} point${sel.size === 1 ? '' : 's'} selected`);
+}
+const moved = (e, d) => d.moved || (d.moved = Math.hypot(e.offsetX - d.sx, e.offsetY - d.sy) > 3);
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('pointerdown', e => {
+  try { cv.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
+  if (cam.on) return down3(e);
+  const [x, y] = s2w(e.offsetX, e.offsetY), sx = e.offsetX, sy = e.offsetY;
+  if (e.button === 1 || (e.button === 0 && spaceDown)) { drag = { type: 'pan', sx, sy, cx: view.cx, cy: view.cy, moved: true }; cv.classList.add('grab'); return; }
+  if (e.button === 2) { const i = hit(sx, sy); if (i >= 0) { pushUndo(); PIN[i] = !PIN[i]; wake(); } return; }
+  if (e.button !== 0) return;
+  if (mode === 'draw') { stroke = [{ x, y }]; drag = { type: 'draw' }; needsRender = true; return; }
+  // whichever is nearer the click wins: a control point or a bridge badge
+  const i = hit(sx, sy);
+  const di = i >= 0 ? Math.hypot(w2s(P[i].x, P[i].y)[0] - sx, w2s(P[i].x, P[i].y)[1] - sy) : Infinity;
+  let b = null, db = 13;
+  for (const c of bridges) { const [bx, by] = w2s(c.x, c.y), d = Math.hypot(bx - sx, by - sy); if (d < db) { db = d; b = c; } }
+  if (i >= 0 && di <= db) { drag = { type: 'point', idx: i, ox: x - P[i].x, oy: y - P[i].y, sx, sy, moved: false }; return; }
+  if (b) { flipBridge(b); return; }
+  if (e.shiftKey) { drag = { type: 'box', sx, sy, ex: sx, ey: sy }; return; }
+  drag = { type: 'pan', sx, sy, cx: view.cx, cy: view.cy, moved: false }; cv.classList.add('grab');
+});
+cv.addEventListener('pointermove', e => {
+  if (cam.on) return move3(e);
+  const [x, y] = s2w(e.offsetX, e.offsetY);
+  if (!drag) { const h = mode === 'edit' ? hit(e.offsetX, e.offsetY) : -1; if (h !== hover) { hover = h; needsRender = true; } return; }
+  if (drag.type === 'pan') { moved(e, drag); view.cx = drag.cx - (e.offsetX - drag.sx) / view.zoom; view.cy = drag.cy + (e.offsetY - drag.sy) / view.zoom; needsRender = true; scheduleSave(); }
+  else if (drag.type === 'point') {
+    if (!drag.moved) { if (!moved(e, drag)) return; pushUndo(); }
+    const i = drag.idx; P[i] = { x: x - drag.ox, y: y - drag.oy }; A[i] = { ...P[i] }; wake();
+  }
+  else if (drag.type === 'box') { drag.ex = e.offsetX; drag.ey = e.offsetY; needsRender = true; }
+  else if (drag.type === 'draw') {
+    const last = stroke[stroke.length - 1], [lx, ly] = w2s(last.x, last.y);
+    if (Math.hypot(lx - e.offsetX, ly - e.offsetY) > 3) { stroke.push({ x, y }); needsRender = true; }
+  }
+});
+function endDrag(e) {
+  if (!drag) return;
+  if (drag.type === 'draw') {
+    let L = 0; for (let i = 1; i < stroke.length; i++) L += Math.hypot(stroke[i].x - stroke[i - 1].x, stroke[i].y - stroke[i - 1].y);
+    if (L < 6 * rules.width) toast('Too short – drag a longer loop');
+    else { pushUndo(); buildFromStroke(stroke); mode = 'edit'; syncMode(); }
+    stroke = null;
+  }
+  else if ((drag.type === 'point' || drag.type === 'height') && !drag.moved) clickSelect(drag.idx, e);
+  else if ((drag.type === 'pan' || drag.type === 'orbit') && !drag.moved && !e.shiftKey && !e.ctrlKey && sel.size) clearSel();
+  else if (drag.type === 'pan3' && !drag.moved && drag.btn === 2) { const i = hit3(e.offsetX, e.offsetY); if (i >= 0) { pushUndo(); PIN[i] = !PIN[i]; } }
+  else if (drag.type === 'box') finishBox(e);
+  drag = null; cv.classList.remove('grab'); wake();
+}
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', endDrag);
+// 3D view: orbit / pan / zoom the camera, select points, drag their heights
+function down3(e) {
+  const sx = e.offsetX, sy = e.offsetY;
+  if (e.button === 1 || e.button === 2 || (e.button === 0 && spaceDown)) { drag = { type: 'pan3', sx, sy, tx: cam.tx, ty: cam.ty, moved: false, btn: e.button }; cv.classList.add('grab'); return; }
+  if (e.button !== 0) return;
+  const i = hit3(sx, sy);
+  const di = i >= 0 ? Math.hypot(node3[i][0] - sx, node3[i][1] - sy) : Infinity;
+  let b = null, db = 12;
+  for (const c of bridges) { if (!c.p3) continue; const d = Math.hypot(c.p3[0] - sx, c.p3[1] - sy); if (d < db) { db = d; b = c; } }
+  if (i >= 0 && di <= db) { drag = { type: 'height', idx: i, sx, sy, moved: false }; return; }
+  if (b) { flipBridge(b); return; }
+  if (e.shiftKey) { drag = { type: 'box', sx, sy, ex: sx, ey: sy }; return; }
+  drag = { type: 'orbit', sx, sy, yaw: cam.yaw, pitch: cam.pitch, moved: false }; cv.classList.add('grab');
+}
+function move3(e) {
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!drag) { const hv = hit3(e.offsetX, e.offsetY); if (hv !== hover) { hover = hv; needsRender = true; } return; }
+  const dx = e.offsetX - drag.sx, dy = e.offsetY - drag.sy;
+  if (drag.type === 'orbit') {
+    moved(e, drag);
+    cam.yaw = drag.yaw - dx * 0.006; cam.pitch = Math.max(0.04, Math.min(1.55, drag.pitch + dy * 0.006));
+    needsRender = true; scheduleSave();
+  } else if (drag.type === 'pan3') {
+    moved(e, drag);
+    const k = cam.dist * 0.0016, cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
+    // screen right on the ground = (-sin yaw, cos yaw); screen up on the ground = towards the target = (-cos yaw, -sin yaw)
+    cam.tx = drag.tx + k * (dx * sy - dy * cy); cam.ty = drag.ty + k * (-dx * cy - dy * sy);
+    needsRender = true; scheduleSave();
+  } else if (drag.type === 'height') {
+    const i = drag.idx;
+    if (!drag.moved) {
+      if (!moved(e, drag)) return;
+      if (!sel.has(i)) { sel = new Set([i]); selAnchor = i; }
+      pushUndo(); drag.base = U.slice();
+      const p0 = project(P[i].x, P[i].y, zc[i] || 0, w, h), p1 = project(P[i].x, P[i].y, (zc[i] || 0) + 1, w, h);
+      drag.ppu = p0 && p1 ? Math.max(10, p0[1] - p1[1]) : 10;     // at most 1 BU per 10 px, so zoomed out stays controllable
+    }
+    let d = -dy / drag.ppu;
+    if (e.shiftKey) d *= 0.2;
+    if (e.ctrlKey || e.metaKey) d = Math.round((drag.base[i] + d) * 2) / 2 - drag.base[i];
+    setHeights(heightsFor(k => drag.base[k] + d), drag.base);
+  } else if (drag.type === 'box') { drag.ex = e.offsetX; drag.ey = e.offsetY; needsRender = true; }
+}
+cv.addEventListener('dblclick', e => {
+  if (cam.on || mode !== 'edit' || P.length < 4) return;
+  const i = hit(e.offsetX, e.offsetY);
+  if (i >= 0) { if (P.length > 6) { pushUndo(); P.splice(i, 1); A.splice(i, 1); PIN.splice(i, 1); U.splice(i, 1); hover = -1; clearSel(); wake(); } else toast('A loop needs at least 6 points'); return; }
+  const [x, y] = s2w(e.offsetX, e.offsetY); const { M, S } = buf;
+  let bj = -1, bd = Infinity;
+  for (let j = 0; j < M; j++) { const d = Math.hypot(S[2 * j] - x, S[2 * j + 1] - y); if (d < bd) { bd = d; bj = j; } }
+  if (bd > rules.width / 2 + 2) return;
+  const sp = Math.floor(bj / K), n = P.length, a = P[sp], b = P[(sp + 1) % n];
+  const np = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, na = { x: (A[sp].x + A[(sp + 1) % n].x) / 2, y: (A[sp].y + A[(sp + 1) % n].y) / 2 };
+  pushUndo(); P.splice(sp + 1, 0, np); A.splice(sp + 1, 0, na); PIN.splice(sp + 1, 0, false); U.splice(sp + 1, 0, (U[sp] + U[(sp + 1) % n]) / 2); clearSel(); wake();
+});
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (cam.on) { cam.dist = Math.max(4, Math.min(8000, cam.dist * Math.exp(e.deltaY * 0.0015))); needsRender = true; scheduleSave(); return; }
+  const [wx, wy] = s2w(e.offsetX, e.offsetY);
+  view.zoom = Math.max(0.2, Math.min(80, view.zoom * Math.exp(-e.deltaY * 0.0015)));
+  view.cx = wx - (e.offsetX - cv.clientWidth / 2) / view.zoom; view.cy = wy + (e.offsetY - cv.clientHeight / 2) / view.zoom;
+  needsRender = true; scheduleSave();
+}, { passive: false });
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space') { spaceDown = true; e.preventDefault(); }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); doUndo(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); sel = new Set(P.map((_, i) => i)); syncSel(); }
+  else if (e.key === 'f' || e.key === 'F') { if (cam.on) fit3d(); else fitView(); }
+  else if (e.key === '3') setView3d(!cam.on);
+  else if (e.key === 'Escape') clearSel();
+  else if (e.key === 'PageUp' || e.key === 'PageDown') { e.preventDefault(); nudgeSel((e.key === 'PageUp' ? 1 : -1) * (e.shiftKey ? 0.1 : 0.5)); }
+});
+window.addEventListener('keyup', e => { if (e.code === 'Space') spaceDown = false; });
+
+// ------------------------------------------------------------------ panel wiring
+function bindNumber(id, obj, key, after) {
+  const el = $(id); el.value = obj[key];
+  el.addEventListener('input', () => { const v = parseFloat(el.value); if (Number.isFinite(v) && v > 0 || (Number.isFinite(v) && v === 0 && key !== 'width' && key !== 'seg')) { obj[key] = v; if (after) after(); wake(); } });
+}
+bindNumber('nWidth', rules, 'width');
+bindNumber('nGap', rules, 'gap');
+bindNumber('nMargin', rules, 'margin');
+bindNumber('nSpacing', rules, 'spacing');
+bindNumber('nSeg', rules, 'seg');
+bindNumber('nBridgeH', rules, 'bridgeH');
+bindNumber('nRamp', rules, 'rampSlope');
+$('cWalls').checked = rules.walls; $('cWalls').addEventListener('change', e => { rules.walls = e.target.checked; wake(); });
+$('cLive').checked = live; $('cLive').addEventListener('change', e => { live = e.target.checked; wake(); });
+$('bDraw').addEventListener('click', () => { mode = 'draw'; syncMode(); toast('Drag a loop on the canvas – the old track stays until you finish'); needsRender = true; });
+$('bDemo').addEventListener('click', loadDemo);
+$('bUndo').addEventListener('click', doUndo);
+$('bFit').addEventListener('click', fitView);
+$('bReset').addEventListener('click', () => { if (!P.length) return; pushUndo(); P = A.map(p => ({ ...p })); wake(); });
+$('bKeep').addEventListener('click', () => { if (!P.length) return; pushUndo(); A = P.map(p => ({ ...p })); wake(); toast('Solved shape is now the drawing'); });
+$('bPins').addEventListener('click', () => { pushUndo(); PIN = P.map(() => false); wake(); });
+// elevation
+$('nHeight').addEventListener('change', e => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && sel.size) { setSelHeight(Math.max(-200, Math.min(200, v))); e.target.blur(); } });
+$('bRamp').addEventListener('click', rampSel);
+$('bLevel').addEventListener('click', () => { if (!sel.size) toast('Select some points first'); else levelSel(); });
+$('bGround').addEventListener('click', () => { if (!sel.size) toast('Select some points first'); else setSelHeight(0); });
+$('bSelAll').addEventListener('click', () => { sel = new Set(P.map((_, i) => i)); syncSel(); });
+$('bSelNone').addEventListener('click', clearSel);
+$('bBake').addEventListener('click', () => { if (!P.length) return; pushUndo(); analyse(); U = Array.from(zc, v => Math.round(v * 1000) / 1000); wake(); syncSel(); toast('Bridge ramps copied into the point heights'); });
+$('bFlat').addEventListener('click', () => { if (!P.length) return; pushUndo(); U = P.map(() => 0); wake(); syncSel(); toast('All points back on the ground'); });
+$('cEase').addEventListener('change', e => { rules.ease = e.target.checked; scheduleSave(); });
+$('b2d').addEventListener('click', () => setView3d(false));
+$('b3d').addEventListener('click', () => setView3d(true));
+// export
+$('tRoad').addEventListener('input', e => { rules.roadSource = e.target.value.trim() || 'road.001'; scheduleSave(); });
+$('cMatch').addEventListener('change', e => { rules.matchWidth = e.target.checked; scheduleSave(); });
+// reference image
+function loadImage(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const url = URL.createObjectURL(file), img = new Image();
+  img.onload = () => { ref.img = img; needsRender = true; if (!P.length) fitView(); toast('Reference image loaded – set its width in BU to match your scale'); };
+  img.src = url;
+}
+$('bImg').addEventListener('click', () => $('fImg').click());
+$('fImg').addEventListener('change', e => loadImage(e.target.files[0]));
+$('bImgX').addEventListener('click', () => { ref.img = null; needsRender = true; });
+bindNumber('nImgW', ref, 'width');
+$('nImgX').value = ref.x; $('nImgY').value = ref.y;
+$('nImgX').addEventListener('input', e => { const v = parseFloat(e.target.value); if (Number.isFinite(v)) { ref.x = v; needsRender = true; } });
+$('nImgY').addEventListener('input', e => { const v = parseFloat(e.target.value); if (Number.isFinite(v)) { ref.y = v; needsRender = true; } });
+$('rImgO').value = ref.opacity; $('rImgO').addEventListener('input', e => { ref.opacity = parseFloat(e.target.value); needsRender = true; });
+const stage = $('stage');
+stage.addEventListener('dragover', e => { e.preventDefault(); $('drop').classList.add('show'); });
+stage.addEventListener('dragleave', () => $('drop').classList.remove('show'));
+stage.addEventListener('drop', e => { e.preventDefault(); $('drop').classList.remove('show'); loadImage(e.dataTransfer.files[0]); });
+
+// ------------------------------------------------------------------ Blender export
+function blenderScript() {
+  evaluate(); crossings = findCrossings(); computeHeights();
+  const pts = P.map((p, i) => `    (${p.x.toFixed(4)}, ${p.y.toFixed(4)}, ${zc[i].toFixed(4)}),`).join('\n');
+  const pyStr = v => JSON.stringify(String(v)).replace(/[\u007f- ]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+  return `# Road Solver export - paste into Blender's Text Editor and press Run.
+# Cyclic NURBS path (order 4) through the solved control points, placed at the 3D cursor.
+# Same axes as the solver view: +X right, +Y up (top view), Z = height (your point heights + bridge ramps).
+# The path object is rotated -90 deg like your other track paths, so a road with the track 1 setup follows
+# it unchanged. Twist is Z-Up so the road stays level across on the ramps (Minimum twist banks it).
+# The road copy is scaled across to ROAD_WIDTH: the solver kept lanes apart and bends open for that width,
+# and a wider road than that folds on the tight bends (on a ramp the folds stand up as walls).
+import bpy, math
+from mathutils import Vector, Matrix
+
+PTS = [
+${pts}
+]
+ROAD_SOURCE = ${pyStr(rules.roadSource || 'road.001')}      # road piece with Mirror -> Array -> Curve (track 1)
+ROAD_WIDTH = ${rules.matchWidth ? rules.width.toFixed(4) : 'None'}      # BU, the solver's road width (None = keep the piece's own width)
+NAME = "solved"
+
+col = bpy.context.collection
+origin = bpy.context.scene.cursor.location.copy()
+to_local = Matrix.Rotation(math.pi / 2, 3, 'Z')     # object is rotated -90 deg, so points go in at +90
+
+cu = bpy.data.curves.new(NAME + " path", 'CURVE')
+cu.dimensions = '3D'
+cu.twist_mode = 'Z_UP'
+cu.use_path = True
+cu.resolution_u = 12
+sp = cu.splines.new('NURBS')
+sp.points.add(len(PTS) - 1)
+for p, (x, y, z) in zip(sp.points, PTS):
+    q = to_local @ Vector((x, y, z))
+    p.co = (q.x, q.y, q.z, 1.0)
+sp.order_u = 4
+sp.use_cyclic_u = True
+sp.use_endpoint_u = False
+sp.resolution_u = 12
+path = bpy.data.objects.new(NAME + " path", cu)
+col.objects.link(path)
+path.location = origin
+path.rotation_euler = (0.0, 0.0, -math.pi / 2)
+
+src = bpy.data.objects.get(ROAD_SOURCE)
+if src is None:
+    print("Road Solver: '%s' not found - made the path only" % ROAD_SOURCE)
+else:
+    road = src.copy()
+    road.data = src.data.copy()
+    road.name = NAME + " road"
+    for i, m in enumerate(road.data.materials):
+        if m:
+            road.data.materials[i] = m.copy()
+    col.objects.link(road)
+    road.location = origin
+    road.rotation_euler = (0.0, 0.0, 0.0)
+    arr = next((md for md in src.modifiers if md.type == 'ARRAY'), None)
+    off = (arr.relative_offset_displace if arr.use_relative_offset else arr.constant_offset_displace) if arr else (0.0, 1.0, 0.0)
+    along = max(range(3), key=lambda k: abs(off[k]))   # the axis the pieces are arrayed along (Y for track 1)
+    across = 1 if along == 0 else 0
+    co = [v.co for v in src.data.vertices]
+    seg = (max(c[along] for c in co) - min(c[along] for c in co)) * src.scale[along]   # world length of one array segment
+    lo, hi = min(c[across] for c in co), max(c[across] for c in co)
+    mirrored = any(md.type == 'MIRROR' and md.use_axis[across] for md in src.modifiers)
+    local_w = 2 * max(abs(lo), abs(hi)) if mirrored else hi - lo
+    piece_w = local_w * src.scale[across]
+    if ROAD_WIDTH and local_w > 1e-9:
+        road.scale[across] = ROAD_WIDTH / local_w
+        print("Road Solver: road width %.3f (the piece is %.3f wide)" % (ROAD_WIDTH, piece_w))
+    elif ROAD_WIDTH is None:
+        print("Road Solver: keeping the piece's width %.3f - the solver checked %.3f" % (piece_w, ${rules.width.toFixed(4)}))
+    bpy.context.view_layer.update()
+    dg = bpy.context.evaluated_depsgraph_get()
+    ev = path.evaluated_get(dg)
+    me = ev.to_mesh()
+    length = sum((me.vertices[e.vertices[0]].co - me.vertices[e.vertices[1]].co).length for e in me.edges)
+    ev.to_mesh_clear()
+    n = max(1, round(length / seg))
+    s = n * seg / length                               # tiny path scale so n segments close the loop exactly
+    path.scale = (s, s, s)
+    for md in road.modifiers:
+        if md.type == 'ARRAY':
+            md.fit_type = 'FIXED_COUNT'
+            md.count = n
+            md.curve = path
+        elif md.type == 'CURVE':
+            md.object = path
+    print("Road Solver: %d segments of %.4f, path scale %.5f" % (n, seg, s))
+`;
+}
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext !== false) {
+    return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+  }
+  return Promise.resolve(fallbackCopy(text));
+}
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e) { /* ignore */ } ta.remove();
+}
+$('bCopy').addEventListener('click', () => {
+  if (P.length < 4) { toast('Draw a track first'); return; }
+  copyText(blenderScript()).then(() => toast('Copied – paste into Blender’s Text Editor and press Run'));
+});
+$('bSave').addEventListener('click', () => {
+  if (P.length < 4) { toast('Draw a track first'); return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([blenderScript()], { type: 'text/x-python' }));
+  a.download = 'solved_track.py'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+// layouts as files (same fields the page keeps in local storage)
+$('bSaveL').addEventListener('click', () => {
+  if (P.length < 4) { toast('Draw a track first'); return; }
+  const data = JSON.stringify({ P, A, PIN, U, rules, flips }, null, 1);
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
+  a.download = 'road_layout.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+$('bOpenL').addEventListener('click', () => $('fLayout').click());
+$('fLayout').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  f.text().then(t => {
+    const d = JSON.parse(t), ok = p => p && Number.isFinite(+p.x) && Number.isFinite(+p.y);
+    if (!Array.isArray(d.P) || d.P.length < 4 || !d.P.every(ok)) throw new Error('no points');
+    pushUndo();
+    P = d.P.map(p => ({ x: +p.x, y: +p.y }));
+    A = Array.isArray(d.A) && d.A.length === P.length && d.A.every(ok) ? d.A.map(p => ({ x: +p.x, y: +p.y })) : P.map(p => ({ ...p }));
+    PIN = Array.isArray(d.PIN) && d.PIN.length === P.length ? d.PIN.map(Boolean) : P.map(() => false);
+    U = Array.isArray(d.U) && d.U.length === P.length ? d.U.map(v => +v || 0) : P.map(() => 0);
+    flips = Array.isArray(d.flips) ? d.flips.filter(ok).map(p => ({ x: +p.x, y: +p.y })) : [];
+    if (d.rules && typeof d.rules === 'object') for (const k of Object.keys(rules)) if (typeof d.rules[k] === typeof rules[k]) rules[k] = d.rules[k];
+    for (const [id, key] of [['nWidth', 'width'], ['nGap', 'gap'], ['nMargin', 'margin'], ['nSpacing', 'spacing'], ['nSeg', 'seg'], ['nBridgeH', 'bridgeH'], ['nRamp', 'rampSlope']]) $(id).value = rules[key];
+    $('cWalls').checked = rules.walls; $('cEase').checked = rules.ease !== false; $('tRoad').value = rules.roadSource; $('cMatch').checked = rules.matchWidth !== false;
+    clearSel(); mode = 'edit'; syncMode(); analyse(); fitView(); camFitted = false; if (cam.on) fit3d(); wake();
+    toast(`Opened ${f.name}: ${P.length} points`);
+  }).catch(() => toast('That file is not a Road Solver layout')).finally(() => { e.target.value = ''; });
+});
+
+let toastTimer = 0;
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2600); }
+
+// ------------------------------------------------------------------ boot
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(cv.clientWidth * dpr); cv.height = Math.round(cv.clientHeight * dpr);
+  needsRender = true;
+}
+new ResizeObserver(resize).observe(cv);
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readColors);
+restore();
+for (const [id, key] of [['nWidth', 'width'], ['nGap', 'gap'], ['nMargin', 'margin'], ['nSpacing', 'spacing'], ['nSeg', 'seg'], ['nBridgeH', 'bridgeH'], ['nRamp', 'rampSlope']]) $(id).value = rules[key];
+$('cWalls').checked = rules.walls; $('cLive').checked = live; $('nImgW').value = ref.width;
+$('cEase').checked = rules.ease !== false; $('tRoad').value = rules.roadSource || 'road.001'; $('cMatch').checked = rules.matchWidth !== false;
+readColors(); resize(); syncMode(); syncSel();
+if (cam.on) { cam.on = false; setView3d(true); }
+window.__roadSolver = { get P() { return P; }, get stats() { return stats; }, get crossings() { return crossings; }, get bridges() { return bridges; }, get view() { return { ...view }; }, get heights() { return Array.from(zc); }, blenderScript, loadDemo,
+  get U() { return U.slice(); }, get sel() { return [...sel]; }, get cam() { return { ...cam }; }, rules,
+  select: idx => { sel = new Set(idx); selAnchor = idx.length ? idx[idx.length - 1] : -1; syncSel(); }, setSelHeight, rampSel, levelSel, nudgeSel, setView3d, fit3d,
+  slopes: () => { analyse(); return Array.from(buf.slope); }, sampleZ: () => { analyse(); return Array.from(buf.z); },
+  profile: () => { analyse(); const { s, sig, ef, z, zIdeal, uS, slope, kap } = buf; return { s: Array.from(s), sig: Array.from(sig), ef: Array.from(ef), z: Array.from(z), zIdeal: Array.from(zIdeal), uS: Array.from(uS), slope: Array.from(slope), kap: Array.from(kap) }; },
+  samples: () => { evaluate(); return Array.from(buf.S); }, setPoints: pts => { pushUndo(); P = pts.map(p => ({ x: p.x, y: p.y })); A = P.map(p => ({ ...p })); PIN = pts.map(() => false); U = pts.map(p => +p.z || 0); clearSel(); mode = 'edit'; syncMode(); wake(); },
+  setLive: v => { live = v; $('cLive').checked = v; wake(); },
+  solve: (n = 500) => { const t0 = performance.now(); let r = { maxd: 0 }, i = 0; for (; i < n; i++) { r = step(); if (r.maxd <= 1e-4) break; } analyse(); needsRender = true; return { steps: i, ms: performance.now() - t0, lastMove: r.maxd, stats }; } };
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
