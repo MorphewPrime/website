@@ -1164,6 +1164,15 @@ function drawNode(x, y, i) {
   if (PIN[i]) { ctx.fillStyle = colors.accent; ctx.fillRect(x - r, y - r, 2 * r, 2 * r); ctx.strokeRect(x - r, y - r, 2 * r, 2 * r); }
   else { ctx.fillStyle = on ? colors.accent : colors.ctrl; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.stroke(); }
 }
+// road height a distance t (BU, either way) along the road from sample j, and the road's slope at j (rise per BU)
+function zAlong(j, t) {
+  const { M, s, z } = buf, L = s[M], sv = ((s[j] + t) % L + L) % L, i = idxAt(sv), k = (i + 1) % M;
+  const f = (sv - s[i]) / Math.max(1e-9, s[i + 1] - s[i]); return z[i] + (z[k] - z[i]) * f;
+}
+function slopeAt(j) {
+  const { M, s, z } = buf, L = s[M], a = (j - 1 + M) % M, b = (j + 1) % M, ds = ((s[b] - s[a]) % L + L) % L;
+  return ds > 1e-9 ? (z[b] - z[a]) / ds : 0;
+}
 // ------------------------------------------------------------------ RL car for scale (Octane hitbox), on the road at carAt
 function carPose() {
   if (rules.showCar === false || P.length < 4 || buf.M !== P.length * K) return null;
@@ -1394,7 +1403,7 @@ function buildRoad3d() {
   const j0 = startSample(), tx = ny[j0], ty = -nx[j0], cells = 8, cw = 2 * hwR[j0] / cells;
   for (let c = 0; c < cells; c++) for (let r = 0; r < 2; r++) {
     const o0 = -hwR[j0] + c * cw, o1 = o0 + cw, t0 = (r - 1) * cw, t1 = t0 + cw;
-    const q = (off, t) => [S[2 * j0] + nx[j0] * off + tx * t, S[2 * j0 + 1] + ny[j0] * off + ty * t, z[j0] + 0.02];
+    const q = (off, t) => [S[2 * j0] + nx[j0] * off + tx * t, S[2 * j0 + 1] + ny[j0] * off + ty * t, zAlong(j0, t) + 0.02];
     vTri.quad(q(o0, t0), q(o1, t0), q(o1, t1), q(o0, t1), (c + r) % 2 ? [0.07, 0.07, 0.07] : [0.97, 0.97, 0.97]);
   }
 }
@@ -1832,7 +1841,8 @@ function blenderScript() {
   evaluate(); crossings = findCrossings(); computeHeights();
   const pts = P.map((p, i) => `    (${p.x.toFixed(4)}, ${p.y.toFixed(4)}, ${zc[i].toFixed(4)}, ${(effW(i) / rules.width).toFixed(4)}),`).join('\n');
   const j0 = startSample(), hd = Math.atan2(buf.D1[2 * j0 + 1], buf.D1[2 * j0]) * 180 / Math.PI;
-  const startLine = `(${buf.S[2 * j0].toFixed(4)}, ${buf.S[2 * j0 + 1].toFixed(4)}, ${buf.z[j0].toFixed(4)}, ${hd.toFixed(2)})`;
+  const pitch = Math.atan(slopeAt(j0)) * 180 / Math.PI;
+  const startLine = `(${buf.S[2 * j0].toFixed(4)}, ${buf.S[2 * j0 + 1].toFixed(4)}, ${buf.z[j0].toFixed(4)}, ${hd.toFixed(2)}, ${pitch.toFixed(2)})`;
   const pyStr = v => JSON.stringify(String(v)).split('').map(ch => ch.charCodeAt(0) > 126 ? '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0') : ch).join('');
   return `# Road Solver export - paste into Blender's Text Editor and press Run.
 # Cyclic NURBS path (order 4) through the solved control points, placed at the 3D cursor.
@@ -1854,7 +1864,7 @@ ROAD_WIDTH = ${rules.matchWidth ? rules.width.toFixed(4) : 'None'}      # BU, th
 SEG = ${rules.seg.toFixed(4)}             # BU, length of one road segment
 BUILD_PIECE = True        # no ROAD_SOURCE in this file: build one like track 1's road.001 (hidden, reused next time)
 NAME = "solved"
-START = ${startLine}      # start/finish line: road centre x, y, z and the heading of travel (deg)
+START = ${startLine}      # start/finish line: road centre x, y, z, heading of travel (deg), road slope there (deg, + = uphill)
 
 
 def solver_material(name, rgb):
@@ -2000,7 +2010,7 @@ st.empty_display_type = 'ARROWS'
 st.empty_display_size = (ROAD_WIDTH or 9.04) / 2
 col.objects.link(st)
 st.location = origin + Vector(START[:3]) * s
-st.rotation_euler = (0.0, 0.0, math.radians(START[3]))
+st.rotation_euler = (0.0, -math.radians(START[4]), math.radians(START[3]))    # tilted with the road: X runs up / down the slope
 print("Road Solver: start/finish marker '%s' at %s" % (st.name, tuple(round(v, 3) for v in st.location)))
 `;
 }
