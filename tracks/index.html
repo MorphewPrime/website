@@ -169,8 +169,9 @@ aside section[data-tab]:not(.show) { display: none; }
           <p><kbd>F</kbd> fit · <kbd>3</kbd> 2D / 3D · <kbd>?</kbd> this list</p>
           <p><kbd>Ctrl</kbd>+<kbd>A</kbd> select all · <kbd>Esc</kbd> clear</p>
           <p><kbd>PgUp</kbd> / <kbd>PgDn</kbd> raise / lower selected by 0.5</p>
-          <h3>Car</h3>
+          <h3>Car &amp; start line</h3>
           <p>Drag the orange car along the road to check the scale.</p>
+          <p>Drag the checkered start/finish line to move it. Bridges you have stay as they are.</p>
         </div>
       </div>
     </div>
@@ -316,6 +317,7 @@ for (let k = 0; k < K; k++) {
 let P = [], A = [], PIN = [];
 let U = [];                  // height you set on each point (BU); bridges ramp on top of it
 let W = [];                  // road width you set on a point (BU); 0 = the Road width rule. Blends along the spline like heights
+let startU = 0;              // start/finish line: point index + fraction along the spline, so it moves with the points
 let sel = new Set(), selAnchor = -1;
 const rules = { width: 9.04, gap: 2.5, margin: 0.5, walls: true, spacing: 6, seg: 4.228, bridgeH: 4, rampSlope: 10,
                 ease: true, roadSource: 'road.001', matchWidth: true, showCar: true, carAt: 0.02 };
@@ -388,6 +390,7 @@ function evaluate() {
   sampleWidths();
 }
 const hMax = () => buf.hMax || halfEff();
+const startSample = () => { const M = buf.M; return M > 0 ? ((Math.round(startU * K) % M) + M) % M : 0; };
 const arcDist = (a, b, L) => { const d = Math.abs(a - b); return Math.min(d, L - d); };
 const cellKey = (x, y) => (x + 100000) * 200003 + (y + 100000);
 
@@ -482,7 +485,9 @@ function computeHeights() {
     const flip = flips.find(f => Math.hypot(f.x - c.x, f.y - c.y) < 2 * hw);
     if (flip) { flip.x = c.x; flip.y = c.y; }
     const ua = at(uS, c.sa), ub = at(uS, c.sb);
-    let overLater = Math.abs(ub - ua) > 0.5 ? ub > ua : true;
+    // default: the later pass counting from the start line goes over
+    const s0 = s[startSample()], ra = ((c.sa - s0) % L + L) % L, rb = ((c.sb - s0) % L + L) % L;
+    let overLater = Math.abs(ub - ua) > 0.5 ? ub > ua : rb >= ra;
     if (flip) overLater = !overLater;
     // how far each road must stay clear of the other: the other road's half width across it, its own skewed by the angle
     const so = overLater ? c.sb : c.sa, su = overLater ? c.sa : c.sb, hO = hwE[idxAt(so)], hU = hwE[idxAt(su)];
@@ -802,7 +807,7 @@ function denseLoop(C, Z, Wd) {
 function buildFromStroke(pts) {
   const { Q } = resampleLoop(pts, pointCount(loopLength(pts)));
   const C = fitThrough(Q);
-  P = C.map(p => ({ x: p.x, y: p.y })); A = P.map(p => ({ ...p })); PIN = C.map(() => false); U = C.map(() => 0); W = C.map(() => 0); flips = []; clearSel();
+  P = C.map(p => ({ x: p.x, y: p.y })); A = P.map(p => ({ ...p })); PIN = C.map(() => false); U = C.map(() => 0); W = C.map(() => 0); startU = 0; flips = []; clearSel();
 }
 // Point spacing changed with a track already there: rebuild it with the new number of points, same shape, start line,
 // heights and pins. Always from the shape before this round of edits (base), so dragging the number never wears it down.
@@ -816,6 +821,7 @@ function respace() {
   sel = new Set(); selAnchor = -1; hover = -1;
   if (n === b.P.length) {           // back to the original count: put the original points back exactly
     P = b.P.map(p => ({ ...p })); A = b.A.map(p => ({ ...p })); U = b.U.slice(); W = (b.W || P.map(() => 0)).slice(); PIN = b.PIN.slice(); flips = b.flips.map(f => ({ ...f }));
+    startU = +b.startU || 0;
     syncSel(); toast(`Back to ${n} points`); return;
   }
   const rp = resampleLoop(dp, n), CP = fitThrough(rp.Q), CA = fitThrough(resampleLoop(denseLoop(b.A), n).Q);
@@ -824,6 +830,7 @@ function respace() {
   b.PIN.forEach((on, i) => { if (on) pin[Math.round(rp.cum[i * 16] / Lo * n) % n] = true; });
   P = CP.map(p => ({ x: p.x, y: p.y })); A = CA.map(p => ({ x: p.x, y: p.y })); U = CP.map(p => Math.round(p.z * 1000) / 1000); PIN = pin;
   W = CP.map(p => Math.abs(p.w) < 0.005 ? 0 : Math.round((rules.width + p.w) * 1000) / 1000);
+  { const k = Math.min(rp.cum.length - 2, Math.max(0, Math.round((+b.startU || 0) * 16))); startU = (rp.cum[k] / Lo * n) % n; }   // same place along the road
   flips = b.flips.map(f => ({ ...f }));
   syncSel(); toast(`Respaced: ${b.P.length} -> ${n} points`);
 }
@@ -1097,14 +1104,14 @@ function drawTrack() {
     bucket.forEach((idx, b) => { if (idx.length) layer(idx, mix(colors.road, '#ffffff', 0.08 + 0.22 * (b + 1) / bands)); });   // higher = lighter
   }
   // start / finish + direction
-  const sq = 6, [ax, ay] = L[0], [bx, by] = R[0], len = Math.hypot(bx - ax, by - ay), cells = Math.max(2, Math.round(len / sq));
+  const j0 = startSample(), sq = 6, [ax, ay] = L[j0], [bx, by] = R[j0], len = Math.hypot(bx - ax, by - ay), cells = Math.max(2, Math.round(len / sq));
   const ux = (bx - ax) / cells, uy = (by - ay) / cells, tx = -uy, ty = ux, tl = Math.hypot(tx, ty) || 1;
   for (let c = 0; c < cells; c++) for (let r = 0; r < 2; r++) {
     ctx.fillStyle = (c + r) % 2 ? '#111' : '#fff';
     const ox = ax + ux * c + tx / tl * sq * (r - 1), oy = ay + uy * c + ty / tl * sq * (r - 1);
     ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(ox + ux, oy + uy); ctx.lineTo(ox + ux + tx / tl * sq, oy + uy + ty / tl * sq); ctx.lineTo(ox + tx / tl * sq, oy + ty / tl * sq); ctx.fill();
   }
-  const a0 = C[0], a1 = C[Math.min(M - 1, 2 * K)];
+  const a0 = C[j0], a1 = C[(j0 + 2 * K) % M];
   const ang = Math.atan2(a1[1] - a0[1], a1[0] - a0[0]), mx = (a0[0] + a1[0]) / 2, my = (a0[1] + a1[1]) / 2;
   ctx.fillStyle = colors.centre; ctx.beginPath();
   ctx.moveTo(mx + 9 * Math.cos(ang), my + 9 * Math.sin(ang));
@@ -1189,16 +1196,43 @@ function drawCar2d() {
 }
 function carScreen() { const c = carPose(); if (!c) return null; return cam.on ? project(c.x, c.y, c.z + CAR.hgt / 2, cv.clientWidth, cv.clientHeight) : w2s(c.x, c.y); }
 function hitCar(sx, sy) { const p = carScreen(); return !!p && Math.hypot(p[0] - sx, p[1] - sy) < 11; }
-// nearest sample to the pointer -> car position along the road
-function moveCarTo(sx, sy) {
-  const { M, S, s } = buf; let bj = 0, bd = Infinity;
+// the road sample nearest the pointer (2D or 3D)
+function nearestSample(sx, sy) {
+  const { M, S } = buf; let bj = 0, bd = Infinity;
   for (let j = 0; j < M; j++) {
     const p = cam.on ? project(S[2 * j], S[2 * j + 1], buf.z[j], cv.clientWidth, cv.clientHeight) : w2s(S[2 * j], S[2 * j + 1]);
     if (!p) continue;
     const d = Math.hypot(p[0] - sx, p[1] - sy); if (d < bd) { bd = d; bj = j; }
   }
-  rules.carAt = s[bj] / s[M]; needsRender = true; scheduleSave();
+  return bj;
 }
+function moveCarTo(sx, sy) { const j = nearestSample(sx, sy); rules.carAt = buf.s[j] / buf.s[buf.M]; needsRender = true; scheduleSave(); }
+// the start/finish line on screen: grab it anywhere across the road
+function hitStart(sx, sy) {
+  if (P.length < 4 || buf.M !== P.length * K) return false;
+  const { S, nx, ny, hwR, z } = buf, j = startSample(), h = hwR[j];
+  const at = side => { const x = S[2 * j] + nx[j] * side * h, y = S[2 * j + 1] + ny[j] * side * h; return cam.on ? project(x, y, z[j], cv.clientWidth, cv.clientHeight) : w2s(x, y); };
+  const a = at(1), b = at(-1); if (!a || !b) return false;
+  const vx = b[0] - a[0], vy = b[1] - a[1], l2 = vx * vx + vy * vy || 1, f = Math.max(0, Math.min(1, ((sx - a[0]) * vx + (sy - a[1]) * vy) / l2));
+  return Math.hypot(a[0] + vx * f - sx, a[1] + vy * f - sy) < 9;
+}
+// Move the start line. The default bridge rule counts from it, so any bridge whose top road would swap is flipped back:
+// moving the line never changes a bridge you already have.
+function setStartU(u) {
+  evaluate(); crossings = findCrossings(); computeHeights();
+  const L = buf.s[buf.M], before = bridges.map(b => ({ x: b.x, y: b.y, so: b.so }));
+  startU = u; computeHeights();
+  let changed = false;
+  for (const b of bridges) {
+    const o = before.find(q => Math.hypot(q.x - b.x, q.y - b.y) < 2);
+    if (!o || arcDist(o.so, b.so, L) < 1) continue;
+    if (b.flipped) flips = flips.filter(f => Math.hypot(f.x - b.x, f.y - b.y) >= 2 * hMax()); else flips.push({ x: b.x, y: b.y });
+    changed = true;
+  }
+  if (changed) computeHeights();
+  wake();
+}
+function moveStartTo(sx, sy) { const j = nearestSample(sx, sy), u = j / K; if (Math.abs(u - startU) > 1e-9) setStartU(u); }
 // heights you set: shown on selected and hovered points
 function drawHeightLabels(pos) {
   if (!sel.size && hover < 0) return;
@@ -1356,11 +1390,11 @@ function buildRoad3d() {
     const q = carCorners(car), o = [0.94, 0.55, 0.11], quad = (a, b, c2, d2, k) => vTri.quad(q[a], q[b], q[c2], q[d2], shade(o, k));
     quad(1, 3, 7, 5, 1.0); quad(0, 1, 5, 4, 0.8); quad(2, 6, 7, 3, 0.8); quad(4, 5, 7, 6, 0.85); quad(0, 2, 3, 1, 0.45); quad(0, 4, 6, 2, 0.6);
   }
-  // start / finish: checkerboard across the road at the first sample
-  const tx = ny[0], ty = -nx[0], cells = 8, cw = 2 * hwR[0] / cells;
+  // start / finish: checkerboard across the road at the start line
+  const j0 = startSample(), tx = ny[j0], ty = -nx[j0], cells = 8, cw = 2 * hwR[j0] / cells;
   for (let c = 0; c < cells; c++) for (let r = 0; r < 2; r++) {
-    const o0 = -hwR[0] + c * cw, o1 = o0 + cw, t0 = (r - 1) * cw, t1 = t0 + cw;
-    const q = (off, t) => [S[0] + nx[0] * off + tx * t, S[1] + ny[0] * off + ty * t, z[0] + 0.02];
+    const o0 = -hwR[j0] + c * cw, o1 = o0 + cw, t0 = (r - 1) * cw, t1 = t0 + cw;
+    const q = (off, t) => [S[2 * j0] + nx[j0] * off + tx * t, S[2 * j0 + 1] + ny[j0] * off + ty * t, z[j0] + 0.02];
     vTri.quad(q(o0, t0), q(o1, t0), q(o1, t1), q(o0, t1), (c + r) % 2 ? [0.07, 0.07, 0.07] : [0.97, 0.97, 0.97]);
   }
 }
@@ -1505,7 +1539,7 @@ function frame(t) {
 }
 
 // ------------------------------------------------------------------ undo / save
-function snapshot() { return { P: P.map(p => ({ ...p })), A: A.map(p => ({ ...p })), PIN: PIN.slice(), U: U.slice(), W: W.slice(), flips: flips.map(f => ({ ...f })) }; }
+function snapshot() { return { P: P.map(p => ({ ...p })), A: A.map(p => ({ ...p })), PIN: PIN.slice(), U: U.slice(), W: W.slice(), startU, flips: flips.map(f => ({ ...f })) }; }
 function syncUndo() { const u = $('bUndo'), r = $('bRedo'); if (u) u.disabled = !undoStack.length; if (r) r.disabled = !redoStack.length; }
 function pushUndo() { undoStack.push(snapshot()); if (undoStack.length > 80) undoStack.shift(); redoStack = []; syncUndo(); }
 function doRedo() {
@@ -1518,7 +1552,7 @@ function doUndo() {
 }
 function restoreSnap(s) {
   const sameLen = s.P.length === P.length;
-  P = s.P; A = s.A; PIN = s.PIN; U = s.U || P.map(() => 0); W = s.W || P.map(() => 0); flips = s.flips || []; mode = P.length >= 4 ? 'edit' : 'draw';
+  P = s.P; A = s.A; PIN = s.PIN; U = s.U || P.map(() => 0); W = s.W || P.map(() => 0); startU = +s.startU || 0; flips = s.flips || []; mode = P.length >= 4 ? 'edit' : 'draw';
   if (!sameLen) clearSel(); else syncSel();
   syncMode(); syncUndo(); wake();
 }
@@ -1526,7 +1560,7 @@ let saveTimer = 0;
 function saveNow() {
   clearTimeout(saveTimer);
   const c = { yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist, tx: cam.tx, ty: cam.ty, tz: cam.tz, on: cam.on, fitted: camFitted };
-  try { localStorage.setItem(STORE, JSON.stringify({ P, A, PIN, U, W, rules, view, cam: c, live, flips })); } catch (e) { /* storage unavailable */ }
+  try { localStorage.setItem(STORE, JSON.stringify({ P, A, PIN, U, W, startU, rules, view, cam: c, live, flips })); } catch (e) { /* storage unavailable */ }
 }
 function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 400); }
 function restore() {
@@ -1539,6 +1573,7 @@ function restore() {
       P = d.P; A = d.A; PIN = d.PIN || P.map(() => false); mode = 'edit';
       U = Array.isArray(d.U) && d.U.length === P.length ? d.U.map(v => +v || 0) : P.map(() => 0);
       W = Array.isArray(d.W) && d.W.length === P.length ? d.W.map(v => Math.max(0, +v || 0)) : P.map(() => 0);
+      startU = Number.isFinite(+d.startU) ? ((+d.startU % P.length) + P.length) % P.length : 0;
     }
     if (Array.isArray(d.flips)) flips = d.flips;
     if (d.cam) { for (const k of ['yaw', 'pitch', 'dist', 'tx', 'ty', 'tz']) if (Number.isFinite(d.cam[k])) cam[k] = d.cam[k]; camFitted = !!d.cam.fitted; cam.on = !!d.cam.on && P.length >= 4; }
@@ -1590,6 +1625,7 @@ cv.addEventListener('pointerdown', e => {
   for (const c of bridges) { const [bx, by] = w2s(c.x, c.y), d = Math.hypot(bx - sx, by - sy); if (d < db) { db = d; b = c; } }
   if (i >= 0 && di <= db) { drag = { type: 'point', idx: i, ox: x - P[i].x, oy: y - P[i].y, sx, sy, moved: false }; return; }
   if (hitCar(sx, sy)) { drag = { type: 'car' }; cv.classList.add('grab'); return; }
+  if (hitStart(sx, sy)) { pushUndo(); drag = { type: 'start' }; cv.classList.add('grab'); return; }
   if (b) { flipBridge(b); return; }
   if (e.shiftKey) { drag = { type: 'box', sx, sy, ex: sx, ey: sy }; return; }
   drag = { type: 'pan', sx, sy, cx: view.cx, cy: view.cy, moved: false }; cv.classList.add('grab');
@@ -1605,6 +1641,7 @@ cv.addEventListener('pointermove', e => {
   }
   else if (drag.type === 'box') { drag.ex = e.offsetX; drag.ey = e.offsetY; needsRender = true; }
   else if (drag.type === 'car') moveCarTo(e.offsetX, e.offsetY);
+  else if (drag.type === 'start') moveStartTo(e.offsetX, e.offsetY);
   else if (drag.type === 'draw') {
     const last = stroke[stroke.length - 1], [lx, ly] = w2s(last.x, last.y);
     if (Math.hypot(lx - e.offsetX, ly - e.offsetY) > 3) { stroke.push({ x, y }); needsRender = true; }
@@ -1637,6 +1674,7 @@ function down3(e) {
   for (const c of bridges) { if (!c.p3) continue; const d = Math.hypot(c.p3[0] - sx, c.p3[1] - sy); if (d < db) { db = d; b = c; } }
   if (i >= 0 && di <= db) { drag = { type: 'height', idx: i, sx, sy, moved: false }; return; }
   if (hitCar(sx, sy)) { drag = { type: 'car' }; cv.classList.add('grab'); return; }
+  if (hitStart(sx, sy)) { pushUndo(); drag = { type: 'start' }; cv.classList.add('grab'); return; }
   if (b) { flipBridge(b); return; }
   if (e.shiftKey) { drag = { type: 'box', sx, sy, ex: sx, ey: sy }; return; }
   drag = { type: 'orbit', sx, sy, yaw: cam.yaw, pitch: cam.pitch, moved: false }; cv.classList.add('grab');
@@ -1670,11 +1708,12 @@ function move3(e) {
     setHeights(heightsFor(k => drag.base[k] + d), drag.base);
   } else if (drag.type === 'box') { drag.ex = e.offsetX; drag.ey = e.offsetY; needsRender = true; }
   else if (drag.type === 'car') moveCarTo(e.offsetX, e.offsetY);
+  else if (drag.type === 'start') moveStartTo(e.offsetX, e.offsetY);
 }
 cv.addEventListener('dblclick', e => {
   if (cam.on || mode !== 'edit' || P.length < 4) return;
   const i = hit(e.offsetX, e.offsetY);
-  if (i >= 0) { if (P.length > 6) { pushUndo(); P.splice(i, 1); A.splice(i, 1); PIN.splice(i, 1); U.splice(i, 1); W.splice(i, 1); hover = -1; clearSel(); wake(); } else toast('A loop needs at least 6 points'); return; }
+  if (i >= 0) { if (P.length > 6) { pushUndo(); P.splice(i, 1); A.splice(i, 1); PIN.splice(i, 1); U.splice(i, 1); W.splice(i, 1); if (startU > i) startU = Math.max(0, startU - 1); hover = -1; clearSel(); wake(); } else toast('A loop needs at least 6 points'); return; }
   const [x, y] = s2w(e.offsetX, e.offsetY); const { M, S } = buf;
   let bj = -1, bd = Infinity;
   for (let j = 0; j < M; j++) { const d = Math.hypot(S[2 * j] - x, S[2 * j + 1] - y); if (d < bd) { bd = d; bj = j; } }
@@ -1682,7 +1721,9 @@ cv.addEventListener('dblclick', e => {
   const sp = Math.floor(bj / K), n = P.length, a = P[sp], b = P[(sp + 1) % n];
   const np = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, na = { x: (A[sp].x + A[(sp + 1) % n].x) / 2, y: (A[sp].y + A[(sp + 1) % n].y) / 2 };
   pushUndo(); P.splice(sp + 1, 0, np); A.splice(sp + 1, 0, na); PIN.splice(sp + 1, 0, false); U.splice(sp + 1, 0, (U[sp] + U[(sp + 1) % n]) / 2);
-  W.splice(sp + 1, 0, W[sp] > 0 || W[(sp + 1) % n] > 0 ? (effW(sp) + effW((sp + 1) % n)) / 2 : 0); clearSel(); wake();
+  W.splice(sp + 1, 0, W[sp] > 0 || W[(sp + 1) % n] > 0 ? (effW(sp) + effW((sp + 1) % n)) / 2 : 0);
+  if (startU > sp + 1) startU += 1; else if (startU > sp) startU = sp + (startU - sp) * 2;     // the split span now has two halves
+  clearSel(); wake();
 });
 cv.addEventListener('wheel', e => {
   e.preventDefault();
@@ -1790,6 +1831,8 @@ stage.addEventListener('drop', e => {
 function blenderScript() {
   evaluate(); crossings = findCrossings(); computeHeights();
   const pts = P.map((p, i) => `    (${p.x.toFixed(4)}, ${p.y.toFixed(4)}, ${zc[i].toFixed(4)}, ${(effW(i) / rules.width).toFixed(4)}),`).join('\n');
+  const j0 = startSample(), hd = Math.atan2(buf.D1[2 * j0 + 1], buf.D1[2 * j0]) * 180 / Math.PI;
+  const startLine = `(${buf.S[2 * j0].toFixed(4)}, ${buf.S[2 * j0 + 1].toFixed(4)}, ${buf.z[j0].toFixed(4)}, ${hd.toFixed(2)})`;
   const pyStr = v => JSON.stringify(String(v)).split('').map(ch => ch.charCodeAt(0) > 126 ? '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0') : ch).join('');
   return `# Road Solver export - paste into Blender's Text Editor and press Run.
 # Cyclic NURBS path (order 4) through the solved control points, placed at the 3D cursor.
@@ -1811,6 +1854,7 @@ ROAD_WIDTH = ${rules.matchWidth ? rules.width.toFixed(4) : 'None'}      # BU, th
 SEG = ${rules.seg.toFixed(4)}             # BU, length of one road segment
 BUILD_PIECE = True        # no ROAD_SOURCE in this file: build one like track 1's road.001 (hidden, reused next time)
 NAME = "solved"
+START = ${startLine}      # start/finish line: road centre x, y, z and the heading of travel (deg)
 
 
 def solver_material(name, rgb):
@@ -1899,6 +1943,7 @@ col.objects.link(path)
 path.location = origin
 path.rotation_euler = (0.0, 0.0, -math.pi / 2)
 
+s = 1.0                                            # path scale (set below when the road is fitted)
 src = bpy.data.objects.get(ROAD_SOURCE)
 if src is None and BUILD_PIECE:
     src = make_road_piece(ROAD_SOURCE, SEG)
@@ -1948,6 +1993,15 @@ else:
         elif md.type == 'CURVE':
             md.object = path
     print("Road Solver: %d segments of %.4f, path scale %.5f" % (n, seg, s))
+
+# start/finish marker: an empty on the road centre, its X arrow pointing the way the race goes
+st = bpy.data.objects.new(NAME + " start", None)
+st.empty_display_type = 'ARROWS'
+st.empty_display_size = (ROAD_WIDTH or 9.04) / 2
+col.objects.link(st)
+st.location = origin + Vector(START[:3]) * s
+st.rotation_euler = (0.0, 0.0, math.radians(START[3]))
+print("Road Solver: start/finish marker '%s' at %s" % (st.name, tuple(round(v, 3) for v in st.location)))
 `;
 }
 function copyText(text) {
@@ -1971,7 +2025,7 @@ $('bSave').addEventListener('click', () => {
 });
 
 // ------------------------------------------------------------------ layouts: files, share links / codes
-const layoutData = () => ({ P, A, PIN, U, W, rules, flips });
+const layoutData = () => ({ P, A, PIN, U, W, startU, rules, flips });
 function syncRuleInputs() {
   for (const [id, key] of [['nWidth', 'width'], ['nGap', 'gap'], ['nMargin', 'margin'], ['nSpacing', 'spacing'], ['nSeg', 'seg'], ['nBridgeH', 'bridgeH'], ['nRamp', 'rampSlope']]) $(id).value = rules[key];
   $('cWalls').checked = rules.walls; $('cEase').checked = rules.ease !== false; $('tRoad').value = rules.roadSource; $('cMatch').checked = rules.matchWidth !== false;
@@ -1988,6 +2042,7 @@ function applyLayout(d) {
   PIN = nums(d.PIN, Boolean) || P.map(() => false);
   U = nums(d.U, v => +v || 0) || P.map(() => 0);
   W = nums(d.W, v => Math.max(0, +v || 0)) || P.map(() => 0);
+  startU = Number.isFinite(+d.startU) ? ((+d.startU % n) + n) % n : 0;
   flips = Array.isArray(d.flips) ? d.flips.filter(ok).map(p => ({ x: +p.x, y: +p.y })) : [];
   if (d.rules && typeof d.rules === 'object') for (const k of Object.keys(rules)) if (typeof d.rules[k] === typeof rules[k]) rules[k] = d.rules[k];
   syncRuleInputs();
@@ -2021,6 +2076,7 @@ async function packTrack() {
   if (hasWidths()) o.w = W.map(c);
   if (PIN.some(Boolean)) o.pin = PIN.flatMap((on, i) => on ? [i] : []);
   if (flips.length) o.f = flips.flatMap(f => [c(f.x), c(f.y)]);
+  if (startU) o.st = Math.round(startU * 1000);
   const json = new TextEncoder().encode(JSON.stringify(o));
   if (typeof CompressionStream === 'function') return 'rs1.' + b64u(await streamBytes(json, new CompressionStream('deflate-raw')));
   return 'rs0.' + b64u(json);
@@ -2037,7 +2093,7 @@ async function unpackTrack(code) {
   const n = P2.length, pin = P2.map(() => false);
   for (const i of o.pin || []) if (i >= 0 && i < n) pin[i] = true;
   const fl = []; for (let i = 0; i + 1 < (o.f || []).length; i += 2) fl.push({ x: o.f[i] / 100, y: o.f[i + 1] / 100 });
-  return { P: P2, PIN: pin, U: (o.u || []).map(v => v / 100), W: (o.w || []).map(v => v / 100), flips: fl, rules: o.r || {} };
+  return { P: P2, PIN: pin, U: (o.u || []).map(v => v / 100), W: (o.w || []).map(v => v / 100), startU: (o.st || 0) / 1000, flips: fl, rules: o.r || {} };
 }
 $('bShare').addEventListener('click', async () => {
   if (P.length < 4) { toast('Draw a track first'); return; }
@@ -2090,13 +2146,15 @@ openSharedFromHash();
 window.addEventListener('hashchange', openSharedFromHash);
 window.__roadSolver = { get P() { return P; }, get stats() { return stats; }, get crossings() { return crossings; }, get bridges() { return bridges; }, get view() { return { ...view }; }, get heights() { return Array.from(zc); }, blenderScript, loadDemo,
   get U() { return U.slice(); }, get sel() { return [...sel]; }, get cam() { return { ...cam }; }, rules,
+  setStart: u => setStartU(u), startInfo: () => { evaluate(); const j = startSample(); return { u: startU, x: buf.S[2 * j], y: buf.S[2 * j + 1] }; },
+  get flips() { return flips.map(f => ({ ...f })); }, undo: () => doUndo(),
   setCam: o => { Object.assign(cam, o); needsRender = true; }, setSelWidth, get W() { return W.slice(); }, packTrack, unpackTrack, applyLayout, carPose, halfWidths: () => { evaluate(); return Array.from(buf.hwR); },
   setSpacing: v => { rules.spacing = v; respace(); }, endSpacing: () => { respaceBase = null; }, pin: idx => { for (const i of idx) PIN[i] = true; },
   get PIN() { return PIN.slice(); }, get A() { return A.map(p => ({ ...p })); },
   select: idx => { sel = new Set(idx); selAnchor = idx.length ? idx[idx.length - 1] : -1; syncSel(); }, setSelHeight, rampSel, levelSel, nudgeSel, setView3d, fit3d,
   slopes: () => { analyse(); return Array.from(buf.slope); }, sampleZ: () => { analyse(); return Array.from(buf.z); },
   profile: () => { analyse(); const { s, sig, ef, z, zIdeal, uS, slope, kap } = buf; return { s: Array.from(s), sig: Array.from(sig), ef: Array.from(ef), z: Array.from(z), zIdeal: Array.from(zIdeal), uS: Array.from(uS), slope: Array.from(slope), kap: Array.from(kap) }; },
-  samples: () => { evaluate(); return Array.from(buf.S); }, setPoints: pts => { pushUndo(); P = pts.map(p => ({ x: p.x, y: p.y })); A = P.map(p => ({ ...p })); PIN = pts.map(() => false); U = pts.map(p => +p.z || 0); W = pts.map(p => Math.max(0, +p.w || 0)); clearSel(); mode = 'edit'; syncMode(); wake(); },
+  samples: () => { evaluate(); return Array.from(buf.S); }, setPoints: pts => { pushUndo(); P = pts.map(p => ({ x: p.x, y: p.y })); A = P.map(p => ({ ...p })); PIN = pts.map(() => false); U = pts.map(p => +p.z || 0); W = pts.map(p => Math.max(0, +p.w || 0)); startU = 0; clearSel(); mode = 'edit'; syncMode(); wake(); },
   setLive: v => { live = v; $('cLive').checked = v; wake(); },
   solve: (n = 500) => { const t0 = performance.now(); let r = { maxd: 0 }, i = 0; for (; i < n; i++) { r = step(); if (r.maxd <= 1e-4) break; } analyse(); needsRender = true; return { steps: i, ms: performance.now() - t0, lastMove: r.maxd, stats }; } };
 requestAnimationFrame(frame);
